@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,8 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Component } from '@angular/core';
+import { Component, ViewChild, ElementRef } from '@angular/core';
 import { IonicPage, ViewController } from 'ionic-angular';
+import { CoreEventsProvider } from '@providers/events';
+import { CoreSitesProvider } from '@providers/sites';
+import { CoreDomUtilsProvider } from '@providers/utils/dom';
 
 /**
  * Modal that asks the password for a lesson.
@@ -24,18 +27,24 @@ import { IonicPage, ViewController } from 'ionic-angular';
     templateUrl: 'password-modal.html',
 })
 export class AddonModLessonPasswordModalPage {
+    @ViewChild('passwordForm') formElement: ElementRef;
 
-    constructor(protected viewCtrl: ViewController) { }
+    constructor(protected viewCtrl: ViewController,
+            protected eventsProvider: CoreEventsProvider,
+            protected sitesProvider: CoreSitesProvider,
+            protected domUtils: CoreDomUtilsProvider) { }
 
     /**
      * Send the password back.
      *
-     * @param {Event} e Event.
-     * @param {HTMLInputElement} password The input element.
+     * @param e Event.
+     * @param password The input element.
      */
     submitPassword(e: Event, password: HTMLInputElement): void {
         e.preventDefault();
         e.stopPropagation();
+
+        this.domUtils.triggerFormSubmittedEvent(this.formElement, false, this.sitesProvider.getCurrentSiteId());
 
         this.viewCtrl.dismiss(password.value);
     }
@@ -44,6 +53,8 @@ export class AddonModLessonPasswordModalPage {
      * Close modal.
      */
     closeModal(): void {
+        this.domUtils.triggerFormCancelledEvent(this.formElement, this.sitesProvider.getCurrentSiteId());
+
         this.viewCtrl.dismiss();
     }
 }

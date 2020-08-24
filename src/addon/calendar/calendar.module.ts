@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,8 +25,8 @@ import { CoreCronDelegate } from '@providers/cron';
 import { CoreInitDelegate } from '@providers/init';
 import { CoreLocalNotificationsProvider } from '@providers/local-notifications';
 import { CoreLoginHelperProvider } from '@core/login/providers/helper';
-import { CoreUpdateManagerProvider } from '@providers/update-manager';
 import { CoreContentLinksDelegate } from '@core/contentlinks/providers/delegate';
+import { AddonCalendarComponentsModule } from './components/components.module';
 
 // List of providers (without handlers).
 export const ADDON_CALENDAR_PROVIDERS: any[] = [
@@ -40,6 +40,7 @@ export const ADDON_CALENDAR_PROVIDERS: any[] = [
     declarations: [
     ],
     imports: [
+        AddonCalendarComponentsModule,
     ],
     providers: [
         AddonCalendarProvider,
@@ -54,7 +55,7 @@ export const ADDON_CALENDAR_PROVIDERS: any[] = [
 export class AddonCalendarModule {
     constructor(mainMenuDelegate: CoreMainMenuDelegate, calendarHandler: AddonCalendarMainMenuHandler,
             initDelegate: CoreInitDelegate, calendarProvider: AddonCalendarProvider, loginHelper: CoreLoginHelperProvider,
-            localNotificationsProvider: CoreLocalNotificationsProvider, updateManager: CoreUpdateManagerProvider,
+            localNotificationsProvider: CoreLocalNotificationsProvider,
             cronDelegate: CoreCronDelegate, syncHandler: AddonCalendarSyncCronHandler,
             contentLinksDelegate: CoreContentLinksDelegate, viewLinkHandler: AddonCalendarViewLinkHandler) {
 
@@ -86,18 +87,5 @@ export class AddonCalendarModule {
                 });
             }
         });
-
-        // Allow migrating the table from the old app to the new schema.
-        // In the old app some calculated properties were stored when it shouldn't. Filter only the fields we want.
-        updateManager.registerSiteTableMigration({
-            name: 'calendar_events',
-            newName: AddonCalendarProvider.EVENTS_TABLE,
-            filterFields: ['id', 'name', 'description', 'format', 'eventtype', 'courseid', 'timestart', 'timeduration',
-                    'categoryid', 'groupid', 'userid', 'instance', 'modulename', 'timemodified', 'repeatid', 'visible', 'uuid',
-                    'sequence', 'subscriptionid']
-        });
-
-        // Migrate the component name.
-        updateManager.registerLocalNotifComponentMigration('mmaCalendarComponent', AddonCalendarProvider.COMPONENT);
     }
 }

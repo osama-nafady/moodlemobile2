@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,8 +15,20 @@
 import { Injectable } from '@angular/core';
 import { CoreEventsProvider } from '@providers/events';
 import { CoreLoggerProvider } from '@providers/logger';
-import { CoreSitesProvider } from '@providers/sites';
+import { CoreSitesProvider, CoreSitesReadingStrategy } from '@providers/sites';
 import { CoreSite } from '@classes/site';
+import { makeSingleton } from '@singletons/core.singletons';
+
+/**
+ * Data sent to the EVENT_MY_COURSES_UPDATED.
+ */
+export type CoreCoursesMyCoursesUpdatedEventData = {
+    action: string; // Action performed.
+    courseId?: number; // Course ID affected (if any).
+    course?: any; // Course affected (if any).
+    state?: string; // Only for ACTION_STATE_CHANGED. The state that changed (hidden, favourite).
+    value?: boolean; // The new value for the state changed.
+};
 
 /**
  * Service that provides some features regarding lists of courses and categories.
@@ -30,6 +42,15 @@ export class CoreCoursesProvider {
     static EVENT_MY_COURSES_REFRESHED = 'courses_my_courses_refreshed';
     static EVENT_DASHBOARD_DOWNLOAD_ENABLED_CHANGED = 'dashboard_download_enabled_changed';
 
+    // Actions for event EVENT_MY_COURSES_UPDATED.
+    static ACTION_ENROL = 'enrol'; // User enrolled in a course.
+    static ACTION_STATE_CHANGED = 'state_changed'; // Course state changed (hidden, favourite).
+    static ACTION_VIEW = 'view'; // Course viewed.
+
+    // Possible states changed.
+    static STATE_HIDDEN = 'hidden';
+    static STATE_FAVOURITE = 'favourite';
+
     protected ROOT_CACHE_KEY = 'mmCourses:';
     protected logger;
     protected userCoursesIds: {[id: number]: boolean}; // Use an object to make it faster to search.
@@ -41,7 +62,7 @@ export class CoreCoursesProvider {
     /**
      * Whether current site supports getting course options.
      *
-     * @return {boolean} Whether current site supports getting course options.
+     * @return Whether current site supports getting course options.
      */
     canGetAdminAndNavOptions(): boolean {
         return this.sitesProvider.wsAvailableInCurrentSite('core_course_get_user_navigation_options') &&
@@ -51,10 +72,10 @@ export class CoreCoursesProvider {
     /**
      * Get categories. They can be filtered by id.
      *
-     * @param {number} categoryId Category ID to get.
-     * @param {boolean} [addSubcategories] If it should add subcategories to the list.
-     * @param {string} [siteId] Site to get the courses from. If not defined, use current site.
-     * @return {Promise<any[]>} Promise resolved with the categories.
+     * @param categoryId Category ID to get.
+     * @param addSubcategories If it should add subcategories to the list.
+     * @param siteId Site to get the courses from. If not defined, use current site.
+     * @return Promise resolved with the categories.
      */
     getCategories(categoryId: number, addSubcategories?: boolean, siteId?: string): Promise<any[]> {
         return this.sitesProvider.getSite(siteId).then((site) => {
@@ -78,9 +99,9 @@ export class CoreCoursesProvider {
     /**
      * Get cache key for get categories methods WS call.
      *
-     * @param {number} categoryId Category ID to get.
-     * @param {boolean} [addSubcategories] If add subcategories to the list.
-     * @return {string} Cache key.
+     * @param categoryId Category ID to get.
+     * @param addSubcategories If add subcategories to the list.
+     * @return Cache key.
      */
     protected getCategoriesCacheKey(categoryId: number, addSubcategories?: boolean): string {
         return this.ROOT_CACHE_KEY + 'categories:' + categoryId + ':' + !!addSubcategories;
@@ -89,9 +110,9 @@ export class CoreCoursesProvider {
     /**
      * Given a list of course IDs to get course admin and nav options, return the list of courseIds to use.
      *
-     * @param {number[]} courseIds Course IDs.
-     * @param {string} [siteId] Site Id. If not defined, use current site.
-     * @return {Promise}            Promise resolved with the list of course IDs.
+     * @param courseIds Course IDs.
+     * @param siteId Site Id. If not defined, use current site.
+     * @return Promise resolved with the list of course IDs.
      */
     protected getCourseIdsForAdminAndNavOptions(courseIds: number[], siteId?: string): Promise<number[]> {
         return this.sitesProvider.getSite(siteId).then((site) => {
@@ -99,42 +120,7 @@ export class CoreCoursesProvider {
 
             if (courseIds.length == 1) {
                 // Only 1 course, check if it belongs to the user courses. If so, use all user courses.
-                return this.getUserCourses(true, siteId).then((courses) => {
-                    const courseId = courseIds[0];
-                    let useAllCourses = false;
-
-                    if (courseId == siteHomeId) {
-                        // It's site home, use all courses.
-                        useAllCourses = true;
-                    } else {
-                        for (let i = 0; i < courses.length; i++) {
-                            if (courses[i].id == courseId) {
-                                useAllCourses = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (useAllCourses) {
-                        // User is enrolled, retrieve all the courses.
-                        courseIds = courses.map((course) => {
-                            return course.id;
-                        });
-
-                        // Always add the site home ID.
-                        courseIds.push(siteHomeId);
-
-                        // Sort the course IDs.
-                        courseIds.sort((a, b) => {
-                           return b - a;
-                        });
-                    }
-
-                    return courseIds;
-                }).catch(() => {
-                    // Ignore errors.
-                    return courseIds;
-                });
+                return this.getCourseIdsIfEnrolled(courseIds[0], siteId);
             } else {
                 if (courseIds.length > 1 && courseIds.indexOf(siteHomeId) == -1) {
                     courseIds.push(siteHomeId);
@@ -151,10 +137,60 @@ export class CoreCoursesProvider {
     }
 
     /**
+     * Given a course ID, if user is enrolled in the course it will return the IDs of all enrolled courses and site home.
+     * Return only the course ID otherwise.
+     *
+     * @param courseIds Course IDs.
+     * @param siteId Site Id. If not defined, use current site.
+     * @return Promise resolved with the list of course IDs.
+     */
+    getCourseIdsIfEnrolled(courseId: number, siteId?: string): Promise<number[]> {
+        return this.sitesProvider.getSite(siteId).then((site) => {
+            const siteHomeId = site.getSiteHomeId();
+
+            // Check if user is enrolled in the course.
+            return this.getUserCourses(true, siteId).then((courses) => {
+                let useAllCourses = false;
+
+                if (courseId == siteHomeId) {
+                    // It's site home, use all courses.
+                    useAllCourses = true;
+                } else {
+                    useAllCourses = !!courses.find((course) => {
+                        return course.id == courseId;
+                    });
+                }
+
+                if (useAllCourses) {
+                    // User is enrolled, return all the courses.
+                    const courseIds = courses.map((course) => {
+                        return course.id;
+                    });
+
+                    // Always add the site home ID.
+                    courseIds.push(siteHomeId);
+
+                    // Sort the course IDs.
+                    courseIds.sort((a, b) => {
+                       return b - a;
+                    });
+
+                    return courseIds;
+                }
+
+                return [courseId];
+            }).catch(() => {
+                // Ignore errors.
+                return [courseId];
+            });
+        });
+    }
+
+    /**
      * Check if download a whole course is disabled in a certain site.
      *
-     * @param {string} [siteId] Site Id. If not defined, use current site.
-     * @return {Promise<boolean>} Promise resolved with true if disabled, rejected or resolved with false otherwise.
+     * @param siteId Site Id. If not defined, use current site.
+     * @return Promise resolved with true if disabled, rejected or resolved with false otherwise.
      */
     isDownloadCourseDisabled(siteId?: string): Promise<boolean> {
         return this.sitesProvider.getSite(siteId).then((site) => {
@@ -165,8 +201,8 @@ export class CoreCoursesProvider {
     /**
      * Check if download a whole course is disabled in a certain site.
      *
-     * @param {CoreSite} [site] Site. If not defined, use current site.
-     * @return {boolean} Whether it's disabled.
+     * @param site Site. If not defined, use current site.
+     * @return Whether it's disabled.
      */
     isDownloadCourseDisabledInSite(site?: CoreSite): boolean {
         site = site || this.sitesProvider.getCurrentSite();
@@ -177,8 +213,8 @@ export class CoreCoursesProvider {
     /**
      * Check if download all courses is disabled in a certain site.
      *
-     * @param {string} [siteId] Site Id. If not defined, use current site.
-     * @return {Promise<boolean>} Promise resolved with true if disabled, rejected or resolved with false otherwise.
+     * @param siteId Site Id. If not defined, use current site.
+     * @return Promise resolved with true if disabled, rejected or resolved with false otherwise.
      */
     isDownloadCoursesDisabled(siteId?: string): Promise<boolean> {
         return this.sitesProvider.getSite(siteId).then((site) => {
@@ -189,8 +225,8 @@ export class CoreCoursesProvider {
     /**
      * Check if download all courses is disabled in a certain site.
      *
-     * @param {CoreSite} [site] Site. If not defined, use current site.
-     * @return {boolean} Whether it's disabled.
+     * @param site Site. If not defined, use current site.
+     * @return Whether it's disabled.
      */
     isDownloadCoursesDisabledInSite(site?: CoreSite): boolean {
         site = site || this.sitesProvider.getCurrentSite();
@@ -201,8 +237,8 @@ export class CoreCoursesProvider {
     /**
      * Check if My Courses is disabled in a certain site.
      *
-     * @param {string} [siteId] Site Id. If not defined, use current site.
-     * @return {Promise<boolean>} Promise resolved with true if disabled, rejected or resolved with false otherwise.
+     * @param siteId Site Id. If not defined, use current site.
+     * @return Promise resolved with true if disabled, rejected or resolved with false otherwise.
      */
     isMyCoursesDisabled(siteId?: string): Promise<boolean> {
         return this.sitesProvider.getSite(siteId).then((site) => {
@@ -213,8 +249,8 @@ export class CoreCoursesProvider {
     /**
      * Check if My Courses is disabled in a certain site.
      *
-     * @param {CoreSite} [site] Site. If not defined, use current site.
-     * @return {boolean} Whether it's disabled.
+     * @param site Site. If not defined, use current site.
+     * @return Whether it's disabled.
      */
     isMyCoursesDisabledInSite(site?: CoreSite): boolean {
         site = site || this.sitesProvider.getCurrentSite();
@@ -225,8 +261,8 @@ export class CoreCoursesProvider {
     /**
      * Check if Search Courses is disabled in a certain site.
      *
-     * @param {string} [siteId] Site Id. If not defined, use current site.
-     * @return {Promise<boolean>} Promise resolved with true if disabled, rejected or resolved with false otherwise.
+     * @param siteId Site Id. If not defined, use current site.
+     * @return Promise resolved with true if disabled, rejected or resolved with false otherwise.
      */
     isSearchCoursesDisabled(siteId?: string): Promise<boolean> {
         return this.sitesProvider.getSite(siteId).then((site) => {
@@ -237,8 +273,8 @@ export class CoreCoursesProvider {
     /**
      * Check if Search Courses is disabled in a certain site.
      *
-     * @param {CoreSite} [site] Site. If not defined, use current site.
-     * @return {boolean} Whether it's disabled.
+     * @param site Site. If not defined, use current site.
+     * @return Whether it's disabled.
      */
     isSearchCoursesDisabledInSite(site?: CoreSite): boolean {
         site = site || this.sitesProvider.getCurrentSite();
@@ -249,9 +285,9 @@ export class CoreCoursesProvider {
     /**
      * Get course.
      *
-     * @param {number} id ID of the course to get.
-     * @param {string} [siteId] Site to get the courses from. If not defined, use current site.
-     * @return {Promise<any>} Promise resolved with the course.
+     * @param id ID of the course to get.
+     * @param siteId Site to get the courses from. If not defined, use current site.
+     * @return Promise resolved with the course.
      */
     getCourse(id: number, siteId?: string): Promise<any> {
         return this.getCourses([id], siteId).then((courses) => {
@@ -266,9 +302,9 @@ export class CoreCoursesProvider {
     /**
      * Get the enrolment methods from a course.
      *
-     * @param {number} id ID of the course.
-     * @param {string} [siteId] Site ID. If not defined, use current site.
-     * @return {Promise<any[]} Promise resolved with the methods.
+     * @param id ID of the course.
+     * @param siteId Site ID. If not defined, use current site.
+     * @return Promise resolved with the methods.
      */
     getCourseEnrolmentMethods(id: number, siteId?: string): Promise<any[]> {
         return this.sitesProvider.getSite(siteId).then((site) => {
@@ -287,8 +323,8 @@ export class CoreCoursesProvider {
     /**
      * Get cache key for get course enrolment methods WS call.
      *
-     * @param {number} id Course ID.
-     * @return {string} Cache key.
+     * @param id Course ID.
+     * @return Cache key.
      */
     protected getCourseEnrolmentMethodsCacheKey(id: number): string {
         return this.ROOT_CACHE_KEY + 'enrolmentmethods:' + id;
@@ -297,9 +333,9 @@ export class CoreCoursesProvider {
     /**
      * Get info from a course guest enrolment method.
      *
-     * @param {number} instanceId Guest instance ID.
-     * @param {string} [siteId] Site ID. If not defined, use current site.
-     * @return {Promise<any>} Promise resolved when the info is retrieved.
+     * @param instanceId Guest instance ID.
+     * @param siteId Site ID. If not defined, use current site.
+     * @return Promise resolved when the info is retrieved.
      */
     getCourseGuestEnrolmentInfo(instanceId: number, siteId?: string): Promise<any> {
         return this.sitesProvider.getSite(siteId).then((site) => {
@@ -320,8 +356,8 @@ export class CoreCoursesProvider {
     /**
      * Get cache key for get course guest enrolment methods WS call.
      *
-     * @param {number} instanceId Guest instance ID.
-     * @return {string} Cache key.
+     * @param instanceId Guest instance ID.
+     * @return Cache key.
      */
     protected getCourseGuestEnrolmentInfoCacheKey(instanceId: number): string {
         return this.ROOT_CACHE_KEY + 'guestinfo:' + instanceId;
@@ -332,9 +368,9 @@ export class CoreCoursesProvider {
      * Warning: if the user doesn't have permissions to view some of the courses passed the WS call will fail.
      * The user must be able to view ALL the courses passed.
      *
-     * @param {number[]} ids List of IDs of the courses to get.
-     * @param {string} [siteId] Site to get the courses from. If not defined, use current site.
-     * @return {Promise<any[]>}  Promise resolved with the courses.
+     * @param ids List of IDs of the courses to get.
+     * @param siteId Site to get the courses from. If not defined, use current site.
+     * @return Promise resolved with the courses.
      */
     getCourses(ids: number[], siteId?: string): Promise<any[]> {
         if (!Array.isArray(ids)) {
@@ -361,8 +397,8 @@ export class CoreCoursesProvider {
     /**
      * Get cache key for get courses WS call.
      *
-     * @param {number[]} ids Courses IDs.
-     * @return {string} Cache key.
+     * @param ids Courses IDs.
+     * @return Cache key.
      */
     protected getCoursesCacheKey(ids: number[]): string {
         return this.ROOT_CACHE_KEY + 'course:' + JSON.stringify(ids);
@@ -373,10 +409,10 @@ export class CoreCoursesProvider {
      * When requesting a single course that belongs to enrolled courses, request all enrolled courses because
      * the WS call is probably cached.
      *
-     * @param {string} [field] The field to search.
-     * @param {any} [value] The value to match.
-     * @param {string} [siteId] Site ID. If not defined, use current site.
-     * @return {Promise<{field: string, value: any}>} Promise resolved with the field and value to use.
+     * @param field The field to search.
+     * @param value The value to match.
+     * @param siteId Site ID. If not defined, use current site.
+     * @return Promise resolved with the field and value to use.
      */
     protected fixCoursesByFieldParams(field?: string, value?: any, siteId?: string): Promise<{field: string, value: any}> {
 
@@ -400,15 +436,15 @@ export class CoreCoursesProvider {
     /**
      * Get the first course returned by getCoursesByField.
      *
-     * @param {string} [field] The field to search. Can be left empty for all courses or:
-     *                             id: course id.
-     *                             ids: comma separated course ids.
-     *                             shortname: course short name.
-     *                             idnumber: course id number.
-     *                             category: category id the course belongs to.
-     * @param {any} [value] The value to match.
-     * @param {string} [siteId] Site ID. If not defined, use current site.
-     * @return {Promise<any>} Promise resolved with the first course.
+     * @param field The field to search. Can be left empty for all courses or:
+     *              id: course id.
+     *              ids: comma separated course ids.
+     *              shortname: course short name.
+     *              idnumber: course id number.
+     *              category: category id the course belongs to.
+     * @param value The value to match.
+     * @param siteId Site ID. If not defined, use current site.
+     * @return Promise resolved with the first course.
      * @since 3.2
      */
     getCourseByField(field?: string, value?: any, siteId?: string): Promise<any> {
@@ -424,15 +460,15 @@ export class CoreCoursesProvider {
     /**
      * Get courses. They can be filtered by field.
      *
-     * @param {string} [field] The field to search. Can be left empty for all courses or:
-     *                             id: course id.
-     *                             ids: comma separated course ids.
-     *                             shortname: course short name.
-     *                             idnumber: course id number.
-     *                             category: category id the course belongs to.
-     * @param {any} [value] The value to match.
-     * @param {string} [siteId] Site ID. If not defined, use current site.
-     * @return {Promise<any[]>} Promise resolved with the courses.
+     * @param field The field to search. Can be left empty for all courses or:
+     *              id: course id.
+     *              ids: comma separated course ids.
+     *              shortname: course short name.
+     *              idnumber: course id number.
+     *              category: category id the course belongs to.
+     * @param value The value to match.
+     * @param siteId Site ID. If not defined, use current site.
+     * @return Promise resolved with the courses.
      * @since 3.2
      */
     getCoursesByField(field?: string, value?: any, siteId?: string): Promise<any[]> {
@@ -503,9 +539,9 @@ export class CoreCoursesProvider {
     /**
      * Get cache key for get courses WS call.
      *
-     * @param {string} [field] The field to search.
-     * @param {any} [value] The value to match.
-     * @return {string} Cache key.
+     * @param field The field to search.
+     * @param value The value to match.
+     * @return Cache key.
      */
     protected getCoursesByFieldCacheKey(field?: string, value?: any): string {
         field = field || '';
@@ -515,10 +551,40 @@ export class CoreCoursesProvider {
     }
 
     /**
+     * Get courses matching the given custom field. Only works in online.
+     *
+     * @param  customFieldName Custom field name.
+     * @param  customFieldValue Custom field value.
+     * @param siteId Site ID. If not defined, current site.
+     * @return Promise resolved with the list of courses.
+     * @since 3.8
+     */
+    getEnrolledCoursesByCustomField(customFieldName: string, customFieldValue: string, siteId?: string): Promise<any[]> {
+        return this.sitesProvider.getSite(siteId).then((site) => {
+            const data = {
+                    classification: 'customfield',
+                    customfieldname: customFieldName,
+                    customfieldvalue: customFieldValue
+                },
+                preSets = {
+                    getFromCache: false
+                };
+
+            return site.read('core_course_get_enrolled_courses_by_timeline_classification', data, preSets).then((courses) => {
+                if (courses.courses) {
+                    return courses.courses;
+                }
+
+                return Promise.reject(null);
+            });
+        });
+    }
+
+    /**
      * Check if get courses by field WS is available in a certain site.
      *
-     * @param {CoreSite} [site] Site to check.
-     * @return {boolean} Whether get courses by field is available.
+     * @param site Site to check.
+     * @return Whether get courses by field is available.
      * @since 3.2
      */
     isGetCoursesByFieldAvailable(site?: CoreSite): boolean {
@@ -530,8 +596,8 @@ export class CoreCoursesProvider {
     /**
      * Check if get courses by field WS is available in a certain site, by site ID.
      *
-     * @param {string} [siteId] Site ID. If not defined, current site.
-     * @return {Promise<boolean>} Promise resolved with boolean: whether get courses by field is available.
+     * @param siteId Site ID. If not defined, current site.
+     * @return Promise resolved with boolean: whether get courses by field is available.
      * @since 3.2
      */
     isGetCoursesByFieldAvailableInSite(siteId?: string): Promise<boolean> {
@@ -543,9 +609,9 @@ export class CoreCoursesProvider {
     /**
      * Get the navigation and administration options for the given courses.
      *
-     * @param {number[]} courseIds IDs of courses to get.
-     * @param {string} [siteId] Site ID. If not defined, current site.
-     * @return {Promise<{navOptions: any, admOptions: any}>} Promise resolved with the options for each course.
+     * @param courseIds IDs of courses to get.
+     * @param siteId Site ID. If not defined, current site.
+     * @return Promise resolved with the options for each course.
      */
     getCoursesAdminAndNavOptions(courseIds: number[], siteId?: string): Promise<{ navOptions: any, admOptions: any }> {
         siteId = siteId || this.sitesProvider.getCurrentSiteId();
@@ -580,7 +646,7 @@ export class CoreCoursesProvider {
     /**
      * Get the common part of the cache keys for user administration options WS calls.
      *
-     * @return {string} Cache key.
+     * @return Cache key.
      */
     protected getUserAdministrationOptionsCommonCacheKey(): string {
         return this.ROOT_CACHE_KEY + 'administrationOptions:';
@@ -589,8 +655,8 @@ export class CoreCoursesProvider {
     /**
      * Get cache key for get user administration options WS call.
      *
-     * @param {number[]} courseIds IDs of courses to get.
-     * @return {string} Cache key.
+     * @param courseIds IDs of courses to get.
+     * @return Cache key.
      */
     protected getUserAdministrationOptionsCacheKey(courseIds: number[]): string {
         return this.getUserAdministrationOptionsCommonCacheKey() + courseIds.join(',');
@@ -599,9 +665,9 @@ export class CoreCoursesProvider {
     /**
      * Get user administration options for a set of courses.
      *
-     * @param {number[]} courseIds IDs of courses to get.
-     * @param {string} [siteId] Site ID. If not defined, current site.
-     * @return {Promise<any>} Promise resolved with administration options for each course.
+     * @param courseIds IDs of courses to get.
+     * @param siteId Site ID. If not defined, current site.
+     * @return Promise resolved with administration options for each course.
      */
     getUserAdministrationOptions(courseIds: number[], siteId?: string): Promise<any> {
         if (!courseIds || courseIds.length == 0) {
@@ -627,8 +693,8 @@ export class CoreCoursesProvider {
     /**
      * Get the common part of the cache keys for user navigation options WS calls.
      *
-     * @param {number[]} courseIds IDs of courses to get.
-     * @return {string} Cache key.
+     * @param courseIds IDs of courses to get.
+     * @return Cache key.
      */
     protected getUserNavigationOptionsCommonCacheKey(): string {
         return this.ROOT_CACHE_KEY + 'navigationOptions:';
@@ -637,7 +703,7 @@ export class CoreCoursesProvider {
     /**
      * Get cache key for get user navigation options WS call.
      *
-     * @return {string} Cache key.
+     * @return Cache key.
      */
     protected getUserNavigationOptionsCacheKey(courseIds: number[]): string {
         return this.getUserNavigationOptionsCommonCacheKey() + courseIds.join(',');
@@ -646,9 +712,9 @@ export class CoreCoursesProvider {
     /**
      * Get user navigation options for a set of courses.
      *
-     * @param {number[]} courseIds IDs of courses to get.
-     * @param {string} [siteId] Site ID. If not defined, current site.
-     * @return {Promise<any>} Promise resolved with navigation options for each course.
+     * @param courseIds IDs of courses to get.
+     * @param siteId Site ID. If not defined, current site.
+     * @return Promise resolved with navigation options for each course.
      */
     getUserNavigationOptions(courseIds: number[], siteId?: string): Promise<any> {
         if (!courseIds || courseIds.length == 0) {
@@ -674,8 +740,8 @@ export class CoreCoursesProvider {
     /**
      * Format user navigation or administration options.
      *
-     * @param {any[]} courses Navigation or administration options for each course.
-     * @return {any} Formatted options.
+     * @param courses Navigation or administration options for each course.
+     * @return Formatted options.
      */
     protected formatUserAdminOrNavOptions(courses: any[]): any {
         const result = {};
@@ -699,10 +765,10 @@ export class CoreCoursesProvider {
      * Get a course the user is enrolled in. This function relies on getUserCourses.
      * preferCache=true will try to speed up the response, but the data returned might not be updated.
      *
-     * @param {number} id ID of the course to get.
-     * @param {boolean} [preferCache] True if shouldn't call WS if data is cached, false otherwise.
-     * @param {string} [siteId] Site to get the courses from. If not defined, use current site.
-     * @return {Promise<any>} Promise resolved with the course.
+     * @param id ID of the course to get.
+     * @param preferCache True if shouldn't call WS if data is cached, false otherwise.
+     * @param siteId Site to get the courses from. If not defined, use current site.
+     * @return Promise resolved with the course.
      */
     getUserCourse(id: number, preferCache?: boolean, siteId?: string): Promise<any> {
         if (!id) {
@@ -725,22 +791,25 @@ export class CoreCoursesProvider {
     /**
      * Get user courses.
      *
-     * @param {boolean} [preferCache] True if shouldn't call WS if data is cached, false otherwise.
-     * @param {string} [siteId] Site to get the courses from. If not defined, use current site.
-     * @return {Promise<any[]>} Promise resolved with the courses.
+     * @param preferCache True if shouldn't call WS if data is cached, false otherwise.
+     * @param siteId Site to get the courses from. If not defined, use current site.
+     * @return Promise resolved with the courses.
      */
-    getUserCourses(preferCache?: boolean, siteId?: string): Promise<any[]> {
+    getUserCourses(preferCache?: boolean, siteId?: string, strategy?: CoreSitesReadingStrategy): Promise<any[]> {
         return this.sitesProvider.getSite(siteId).then((site) => {
 
             const userId = site.getUserId(),
                 data: any = {
                     userid: userId
                 },
+                strategyPreSets = strategy
+                    ? this.sitesProvider.getReadingStrategyPreSets(strategy)
+                    : { omitExpires: !!preferCache },
                 preSets = {
                     cacheKey: this.getUserCoursesCacheKey(),
                     getCacheUsingCacheKey: true,
-                    omitExpires: !!preferCache,
-                    updateFrequency: CoreSite.FREQUENCY_RARELY
+                    updateFrequency: CoreSite.FREQUENCY_RARELY,
+                    ...strategyPreSets,
                 };
 
             if (site.isVersionGreaterEqualThan('3.7')) {
@@ -800,7 +869,7 @@ export class CoreCoursesProvider {
     /**
      * Get cache key for get user courses WS call.
      *
-     * @return {string} Cache key.
+     * @return Cache key.
      */
     protected getUserCoursesCacheKey(): string {
         return this.ROOT_CACHE_KEY + 'usercourses';
@@ -809,10 +878,10 @@ export class CoreCoursesProvider {
     /**
      * Invalidates get categories WS call.
      *
-     * @param {number} categoryId Category ID to get.
-     * @param {boolean} [addSubcategories] If it should add subcategories to the list.
-     * @param {string} [siteId] Site Id. If not defined, use current site.
-     * @return {Promise<any>} Promise resolved when the data is invalidated.
+     * @param categoryId Category ID to get.
+     * @param addSubcategories If it should add subcategories to the list.
+     * @param siteId Site Id. If not defined, use current site.
+     * @return Promise resolved when the data is invalidated.
      */
     invalidateCategories(categoryId: number, addSubcategories?: boolean, siteId?: string): Promise<any> {
         return this.sitesProvider.getSite(siteId).then((site) => {
@@ -823,9 +892,9 @@ export class CoreCoursesProvider {
     /**
      * Invalidates get course WS call.
      *
-     * @param {number} id Course ID.
-     * @param {string} [siteId] Site Id. If not defined, use current site.
-     * @return {Promise<any>} Promise resolved when the data is invalidated.
+     * @param id Course ID.
+     * @param siteId Site Id. If not defined, use current site.
+     * @return Promise resolved when the data is invalidated.
      */
     invalidateCourse(id: number, siteId?: string): Promise<any> {
         return this.invalidateCourses([id], siteId);
@@ -834,9 +903,9 @@ export class CoreCoursesProvider {
     /**
      * Invalidates get course enrolment methods WS call.
      *
-     * @param {number} id Course ID.
-     * @param {string} [siteId] Site Id. If not defined, use current site.
-     * @return {Promise<any>} Promise resolved when the data is invalidated.
+     * @param id Course ID.
+     * @param siteId Site Id. If not defined, use current site.
+     * @return Promise resolved when the data is invalidated.
      */
     invalidateCourseEnrolmentMethods(id: number, siteId?: string): Promise<any> {
         return this.sitesProvider.getSite(siteId).then((site) => {
@@ -847,9 +916,9 @@ export class CoreCoursesProvider {
     /**
      * Invalidates get course guest enrolment info WS call.
      *
-     * @param {number} instanceId Guest instance ID.
-     * @param {string} [siteId] Site Id. If not defined, use current site.
-     * @return {Promise<any>} Promise resolved when the data is invalidated.
+     * @param instanceId Guest instance ID.
+     * @param siteId Site Id. If not defined, use current site.
+     * @return Promise resolved when the data is invalidated.
      */
     invalidateCourseGuestEnrolmentInfo(instanceId: number, siteId?: string): Promise<any> {
         return this.sitesProvider.getSite(siteId).then((site) => {
@@ -860,9 +929,9 @@ export class CoreCoursesProvider {
     /**
      * Invalidates the navigation and administration options for the given courses.
      *
-     * @param {number[]} courseIds IDs of courses to get.
-     * @param {string} [siteId] Site ID to invalidate. If not defined, use current site.
-     * @return {Promise<any>} Promise resolved when the data is invalidated.
+     * @param courseIds IDs of courses to get.
+     * @param siteId Site ID to invalidate. If not defined, use current site.
+     * @return Promise resolved when the data is invalidated.
      */
     invalidateCoursesAdminAndNavOptions(courseIds: number[], siteId?: string): Promise<any> {
         siteId = siteId || this.sitesProvider.getCurrentSiteId();
@@ -880,9 +949,9 @@ export class CoreCoursesProvider {
     /**
      * Invalidates get courses WS call.
      *
-     * @param {number[]} ids Courses IDs.
-     * @param {string} [siteId] Site Id. If not defined, use current site.
-     * @return {Promise<any>} Promise resolved when the data is invalidated.
+     * @param ids Courses IDs.
+     * @param siteId Site Id. If not defined, use current site.
+     * @return Promise resolved when the data is invalidated.
      */
     invalidateCourses(ids: number[], siteId?: string): Promise<any> {
         return this.sitesProvider.getSite(siteId).then((site) => {
@@ -893,10 +962,10 @@ export class CoreCoursesProvider {
     /**
      * Invalidates get courses by field WS call.
      *
-     * @param {string} [field] See getCoursesByField for info.
-     * @param {any} [value] The value to match.
-     * @param {string} [siteId] Site Id. If not defined, use current site.
-     * @return {Promise<any>} Promise resolved when the data is invalidated.
+     * @param field See getCoursesByField for info.
+     * @param value The value to match.
+     * @param siteId Site Id. If not defined, use current site.
+     * @return Promise resolved when the data is invalidated.
      */
     invalidateCoursesByField(field?: string, value?: any, siteId?: string): Promise<any> {
         siteId = siteId || this.sitesProvider.getCurrentSiteId();
@@ -914,8 +983,8 @@ export class CoreCoursesProvider {
     /**
      * Invalidates all user administration options.
      *
-     * @param {string} [siteId] Site ID to invalidate. If not defined, use current site.
-     * @return {Promise<any>} Promise resolved when the data is invalidated.
+     * @param siteId Site ID to invalidate. If not defined, use current site.
+     * @return Promise resolved when the data is invalidated.
      */
     invalidateUserAdministrationOptions(siteId?: string): Promise<any> {
         return this.sitesProvider.getSite(siteId).then((site) => {
@@ -926,9 +995,9 @@ export class CoreCoursesProvider {
     /**
      * Invalidates user administration options for certain courses.
      *
-     * @param {number[]} courseIds IDs of courses.
-     * @param {string} [siteId] Site ID to invalidate. If not defined, use current site.
-     * @return {Promise<any>} Promise resolved when the data is invalidated.
+     * @param courseIds IDs of courses.
+     * @param siteId Site ID to invalidate. If not defined, use current site.
+     * @return Promise resolved when the data is invalidated.
      */
     invalidateUserAdministrationOptionsForCourses(courseIds: number[], siteId?: string): Promise<any> {
         return this.sitesProvider.getSite(siteId).then((site) => {
@@ -939,8 +1008,8 @@ export class CoreCoursesProvider {
     /**
      * Invalidates get user courses WS call.
      *
-     * @param {string} [siteId] Site ID to invalidate. If not defined, use current site.
-     * @return {Promise<any>} Promise resolved when the data is invalidated.
+     * @param siteId Site ID to invalidate. If not defined, use current site.
+     * @return Promise resolved when the data is invalidated.
      */
     invalidateUserCourses(siteId?: string): Promise<any> {
         return this.sitesProvider.getSite(siteId).then((site) => {
@@ -951,8 +1020,8 @@ export class CoreCoursesProvider {
     /**
      * Invalidates all user navigation options.
      *
-     * @param {string} [siteId] Site ID to invalidate. If not defined, use current site.
-     * @return {Promise<any>} Promise resolved when the data is invalidated.
+     * @param siteId Site ID to invalidate. If not defined, use current site.
+     * @return Promise resolved when the data is invalidated.
      */
     invalidateUserNavigationOptions(siteId?: string): Promise<any> {
         return this.sitesProvider.getSite(siteId).then((site) => {
@@ -963,9 +1032,9 @@ export class CoreCoursesProvider {
     /**
      * Invalidates user navigation options for certain courses.
      *
-     * @param {number[]} courseIds IDs of courses.
-     * @param {string} [siteId] Site ID to invalidate. If not defined, use current site.
-     * @return {Promise<any>} Promise resolved when the data is invalidated.
+     * @param courseIds IDs of courses.
+     * @param siteId Site ID to invalidate. If not defined, use current site.
+     * @return Promise resolved when the data is invalidated.
      */
     invalidateUserNavigationOptionsForCourses(courseIds: number[], siteId?: string): Promise<any> {
         return this.sitesProvider.getSite(siteId).then((site) => {
@@ -976,7 +1045,7 @@ export class CoreCoursesProvider {
     /**
      * Check if WS to retrieve guest enrolment data is available.
      *
-     * @return {boolean} Whether guest WS is available.
+     * @return Whether guest WS is available.
      */
     isGuestWSAvailable(): boolean {
         const currentSite = this.sitesProvider.getCurrentSite();
@@ -987,11 +1056,11 @@ export class CoreCoursesProvider {
     /**
      * Search courses.
      *
-     * @param {string} text Text to search.
-     * @param {number} [page=0] Page to get.
-     * @param {number} [perPage] Number of courses per page. Defaults to CoreCoursesProvider.SEARCH_PER_PAGE.
-     * @param {string} [siteId] Site ID. If not defined, use current site.
-     * @return {Promise<{total: number, courses: any[]}>} Promise resolved with the courses and the total of matches.
+     * @param text Text to search.
+     * @param page Page to get.
+     * @param perPage Number of courses per page. Defaults to CoreCoursesProvider.SEARCH_PER_PAGE.
+     * @param siteId Site ID. If not defined, use current site.
+     * @return Promise resolved with the courses and the total of matches.
      */
     search(text: string, page: number = 0, perPage?: number, siteId?: string): Promise<{ total: number, courses: any[] }> {
         perPage = perPage || CoreCoursesProvider.SEARCH_PER_PAGE;
@@ -1016,12 +1085,12 @@ export class CoreCoursesProvider {
     /**
      * Self enrol current user in a certain course.
      *
-     * @param {number} courseId Course ID.
-     * @param {string} [password] Password to use.
-     * @param {number} [instanceId] Enrol instance ID.
-     * @param {string} [siteId] Site ID. If not defined, use current site.
-     * @return {Promise<any>} Promise resolved if the user is enrolled. If the password is invalid, the promise is rejected
-     *                        with an object with code = CoreCoursesProvider.ENROL_INVALID_KEY.
+     * @param courseId Course ID.
+     * @param password Password to use.
+     * @param instanceId Enrol instance ID.
+     * @param siteId Site ID. If not defined, use current site.
+     * @return Promise resolved if the user is enrolled. If the password is invalid, the promise is rejected
+     *         with an object with code = CoreCoursesProvider.ENROL_INVALID_KEY.
      */
     selfEnrol(courseId: number, password: string = '', instanceId?: number, siteId?: string): Promise<any> {
         return this.sitesProvider.getSite(siteId).then((site) => {
@@ -1064,10 +1133,10 @@ export class CoreCoursesProvider {
     /**
      * Set favourite property on a course.
      *
-     * @param {number} courseId   Course ID.
-     * @param {boolean} favourite If favourite or unfavourite.
-     * @param {string} [siteId] Site ID. If not defined, use current site.
-     * @return {Promise<any>} Promise resolved when done.
+     * @param courseId Course ID.
+     * @param favourite If favourite or unfavourite.
+     * @param siteId Site ID. If not defined, use current site.
+     * @return Promise resolved when done.
      */
     setFavouriteCourse(courseId: number, favourite: boolean, siteId?: string): Promise<any> {
         return this.sitesProvider.getSite(siteId).then((site) => {
@@ -1084,3 +1153,5 @@ export class CoreCoursesProvider {
         });
     }
 }
+
+export class CoreCourses extends makeSingleton(CoreCoursesProvider) {}

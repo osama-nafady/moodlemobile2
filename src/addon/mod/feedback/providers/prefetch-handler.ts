@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,6 +26,9 @@ import { AddonModFeedbackHelperProvider } from './helper';
 import { CoreTimeUtilsProvider } from '@providers/utils/time';
 import { CoreGroupsProvider } from '@providers/groups';
 import { AddonModFeedbackSyncProvider } from './sync';
+import { CoreFilterHelperProvider } from '@core/filter/providers/helper';
+import { CorePluginFileDelegate } from '@providers/plugin-file-delegate';
+import { CoreWSExternalFile } from '@providers/ws';
 
 /**
  * Handler to prefetch feedbacks.
@@ -39,54 +42,68 @@ export class AddonModFeedbackPrefetchHandler extends CoreCourseActivityPrefetchH
 
     protected syncProvider: AddonModFeedbackSyncProvider; // It will be injected later to prevent circular dependencies.
 
-    constructor(translate: TranslateService, appProvider: CoreAppProvider, utils: CoreUtilsProvider,
-            courseProvider: CoreCourseProvider, filepoolProvider: CoreFilepoolProvider, sitesProvider: CoreSitesProvider,
-            domUtils: CoreDomUtilsProvider, protected feedbackProvider: AddonModFeedbackProvider,
+    constructor(translate: TranslateService,
+            appProvider: CoreAppProvider,
+            utils: CoreUtilsProvider,
+            courseProvider: CoreCourseProvider,
+            filepoolProvider: CoreFilepoolProvider,
+            sitesProvider: CoreSitesProvider,
+            domUtils: CoreDomUtilsProvider,
+            filterHelper: CoreFilterHelperProvider,
+            pluginFileDelegate: CorePluginFileDelegate,
+            protected feedbackProvider: AddonModFeedbackProvider,
             protected feedbackHelper: AddonModFeedbackHelperProvider,
-            protected timeUtils: CoreTimeUtilsProvider, protected groupsProvider: CoreGroupsProvider,
+            protected timeUtils: CoreTimeUtilsProvider,
+            protected groupsProvider: CoreGroupsProvider,
             protected injector: Injector) {
 
-        super(translate, appProvider, utils, courseProvider, filepoolProvider, sitesProvider, domUtils);
+        super(translate, appProvider, utils, courseProvider, filepoolProvider, sitesProvider, domUtils, filterHelper,
+                pluginFileDelegate);
     }
 
     /**
      * Get the list of downloadable files.
      *
-     * @param  {any} module       Module to get the files.
-     * @param  {number} courseId  Course ID the module belongs to.
-     * @param  {boolean} [single] True if we're downloading a single module, false if we're downloading a whole section.
-     * @return {Promise<any>}     Promise resolved with the list of files.
+     * @param module Module to get the files.
+     * @param courseId Course ID the module belongs to.
+     * @param single True if we're downloading a single module, false if we're downloading a whole section.
+     * @return Promise resolved with the list of files.
      */
-    getFiles(module: any, courseId: number, single?: boolean): Promise<any[]> {
+    async getFiles(module: any, courseId: number, single?: boolean): Promise<CoreWSExternalFile[]> {
         let files = [];
 
-        return this.feedbackProvider.getFeedback(courseId, module.id).then((feedback) => {
+        const feedback = await this.feedbackProvider.getFeedback(courseId, module.id);
 
-            // Get intro files and page after submit files.
-            files = feedback.pageaftersubmitfiles || [];
-            files = files.concat(this.getIntroFilesFromInstance(module, feedback));
+        // Get intro files and page after submit files.
+        files = feedback.pageaftersubmitfiles || [];
+        files = files.concat(this.getIntroFilesFromInstance(module, feedback));
 
-            return this.feedbackProvider.getItems(feedback.id);
-        }).then((response) => {
+        try {
+            const response = await this.feedbackProvider.getItems(feedback.id);
+
             response.items.forEach((item) => {
-                files = files.concat(item.itemfiles);
+                files = files.concat(item.itemfiles.map((file) => {
+                    file.fileurl = file.fileurl || file.url;
+
+                    return file;
+                }));
             });
 
-            return files;
-        }).catch(() => {
-            // Any error, return the list we have.
-            return files;
-        });
+        } catch (e) {
+            // Ignore errors.
+        }
+
+        return files;
     }
 
     /**
      * Returns feedback intro files.
      *
-     * @param {any} module The module object returned by WS.
-     * @param {number} courseId Course ID.
-     * @return {Promise<any[]>} Promise resolved with list of intro files.
+     * @param module The module object returned by WS.
+     * @param courseId Course ID.
+     * @return Promise resolved with list of intro files.
      */
-    getIntroFiles(module: any, courseId: number): Promise<any[]> {
+    getIntroFiles(module: any, courseId: number): Promise<CoreWSExternalFile[]> {
         return this.feedbackProvider.getFeedback(courseId, module.id).catch(() => {
             // Not found, return undefined so module description is used.
         }).then((feedback) => {
@@ -97,9 +114,9 @@ export class AddonModFeedbackPrefetchHandler extends CoreCourseActivityPrefetchH
     /**
      * Invalidate the prefetched content.
      *
-     * @param {number} moduleId The module ID.
-     * @param {number} courseId Course ID the module belongs to.
-     * @return {Promise<any>} Promise resolved when the data is invalidated.
+     * @param moduleId The module ID.
+     * @param courseId Course ID the module belongs to.
+     * @return Promise resolved when the data is invalidated.
      */
     invalidateContent(moduleId: number, courseId: number): Promise<any> {
         return this.feedbackProvider.invalidateContent(moduleId, courseId);
@@ -108,9 +125,9 @@ export class AddonModFeedbackPrefetchHandler extends CoreCourseActivityPrefetchH
     /**
      * Invalidate WS calls needed to determine module status.
      *
-     * @param {any} module Module.
-     * @param {number} courseId Course ID the module belongs to.
-     * @return {Promise<any>} Promise resolved when invalidated.
+     * @param module Module.
+     * @param courseId Course ID the module belongs to.
+     * @return Promise resolved when invalidated.
      */
     invalidateModule(module: any, courseId: number): Promise<any> {
         return this.feedbackProvider.invalidateFeedbackData(courseId);
@@ -121,9 +138,9 @@ export class AddonModFeedbackPrefetchHandler extends CoreCourseActivityPrefetchH
      * A feedback isn't downloadable if it's not open yet.
      * Closed feedback are downloadable because teachers can always see the results.
      *
-     * @param {any} module    Module to check.
-     * @param {number} courseId  Course ID the module belongs to.
-     * @return {Promise<any>}         Promise resolved with true if downloadable, resolved with false otherwise.
+     * @param module Module to check.
+     * @param courseId Course ID the module belongs to.
+     * @return Promise resolved with true if downloadable, resolved with false otherwise.
      */
     isDownloadable(module: any, courseId: number): boolean | Promise<boolean> {
         return this.feedbackProvider.getFeedback(courseId, module.id, undefined, true).then((feedback) => {
@@ -146,7 +163,7 @@ export class AddonModFeedbackPrefetchHandler extends CoreCourseActivityPrefetchH
     /**
      * Whether or not the handler is enabled on a site level.
      *
-     * @return {boolean|Promise<boolean>} A boolean, or a promise resolved with a boolean, indicating if the handler is enabled.
+     * @return A boolean, or a promise resolved with a boolean, indicating if the handler is enabled.
      */
     isEnabled(): boolean | Promise<boolean> {
         return this.feedbackProvider.isPluginEnabled();
@@ -155,11 +172,11 @@ export class AddonModFeedbackPrefetchHandler extends CoreCourseActivityPrefetchH
     /**
      * Prefetch a module.
      *
-     * @param {any} module Module.
-     * @param {number} courseId Course ID the module belongs to.
-     * @param {boolean} [single] True if we're downloading a single module, false if we're downloading a whole section.
-     * @param {string} [dirPath] Path of the directory where to store all the content files.
-     * @return {Promise<any>} Promise resolved when done.
+     * @param module Module.
+     * @param courseId Course ID the module belongs to.
+     * @param single True if we're downloading a single module, false if we're downloading a whole section.
+     * @param dirPath Path of the directory where to store all the content files.
+     * @return Promise resolved when done.
      */
     prefetch(module: any, courseId?: number, single?: boolean, dirPath?: string): Promise<any> {
         return this.prefetchPackage(module, courseId, single, this.prefetchFeedback.bind(this));
@@ -168,11 +185,11 @@ export class AddonModFeedbackPrefetchHandler extends CoreCourseActivityPrefetchH
     /**
      * Prefetch a feedback.
      *
-     * @param {any} module Module.
-     * @param {number} courseId Course ID the module belongs to.
-     * @param {boolean} single True if we're downloading a single module, false if we're downloading a whole section.
-     * @param {String} siteId Site ID.
-     * @return {Promise<any>} Promise resolved when done.
+     * @param module Module.
+     * @param courseId Course ID the module belongs to.
+     * @param single True if we're downloading a single module, false if we're downloading a whole section.
+     * @param siteId Site ID.
+     * @return Promise resolved when done.
      */
     protected prefetchFeedback(module: any, courseId: number, single: boolean, siteId: string): Promise<any> {
         // Prefetch the feedback data.
@@ -232,10 +249,10 @@ export class AddonModFeedbackPrefetchHandler extends CoreCourseActivityPrefetchH
     /**
      * Sync a module.
      *
-     * @param {any} module Module.
-     * @param {number} courseId Course ID the module belongs to
-     * @param {string} [siteId] Site ID. If not defined, current site.
-     * @return {Promise<any>} Promise resolved when done.
+     * @param module Module.
+     * @param courseId Course ID the module belongs to
+     * @param siteId Site ID. If not defined, current site.
+     * @return Promise resolved when done.
      */
     sync(module: any, courseId: number, siteId?: any): Promise<any> {
         if (!this.syncProvider) {

@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -40,6 +40,7 @@ export class CoreIconComponent implements OnChanges, OnDestroy {
     @Input('fixed-width') fixedWidth: string;
 
     @Input('label') ariaLabel?: string;
+    @Input() flipRtl?: boolean; // Whether to flip the icon in RTL. Defaults to false.
 
     protected element: HTMLElement;
     protected newElement: HTMLElement;
@@ -82,6 +83,7 @@ export class CoreIconComponent implements OnChanges, OnDestroy {
         !this.ariaLabel && this.newElement.setAttribute('aria-hidden', 'true');
         !this.ariaLabel && this.newElement.setAttribute('role', 'presentation');
         this.ariaLabel && this.newElement.setAttribute('aria-label', this.ariaLabel);
+        this.ariaLabel && this.newElement.setAttribute('title', this.ariaLabel);
 
         const attrs = this.element.attributes;
         for (let i = attrs.length - 1; i >= 0; i--) {
@@ -105,14 +107,18 @@ export class CoreIconComponent implements OnChanges, OnDestroy {
             this.newElement.classList.add('icon-slash');
         }
 
+        if (this.flipRtl) {
+            this.newElement.classList.add('core-icon-dir-flip');
+        }
+
         oldElement.parentElement.replaceChild(this.newElement, oldElement);
     }
 
     /**
      * Check if the value is true or on.
      *
-     * @param  {any}     val value to be checked.
-     * @return {boolean}     If has a value equivalent to true.
+     * @param val value to be checked.
+     * @return If has a value equivalent to true.
      */
     isTrueProperty(val: any): boolean {
         if (typeof val === 'string') {

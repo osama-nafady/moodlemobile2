@@ -58,6 +58,7 @@ function build_languages($languages, $keys, $added_langs = []) {
 }
 
 function get_langindex_keys() {
+    $local = 0;
     // Process the index file, just once.
     $keys = file_get_contents('langindex.json');
     $keys = (array) json_decode($keys);
@@ -67,6 +68,7 @@ function get_langindex_keys() {
         if ($value == 'local_moodlemobileapp') {
             $map->file = $value;
             $map->string = $key;
+            $local++;
         } else {
             $exp = explode('/', $value, 2);
             $map->file = $exp[0];
@@ -87,7 +89,7 @@ function get_langindex_keys() {
     }
 
     $total = count($keys);
-    echo "Total strings to translate $total\n";
+    echo "Total strings to translate $total ($local local)\n";
 
     return $keys;
 }
@@ -118,8 +120,6 @@ function add_langs_to_config($langs, $config) {
 function get_langfolder($lang) {
     $folder = LANGPACKSFOLDER.'/'.str_replace('-', '_', $lang);
     if (!is_dir($folder) || !is_file($folder.'/langconfig.php')) {
-        echo "Cannot translate $folder, folder not found";
-
         return false;
     }
 
@@ -171,6 +171,8 @@ function reset_translations_strings() {
 function build_lang($lang, $keys) {
     $langfoldername = get_langfolder($lang);
     if (!$langfoldername) {
+        echo "Cannot translate $lang, folder not found";
+
         return false;
     }
 
@@ -180,15 +182,18 @@ function build_lang($lang, $keys) {
         $override_langfolder = false;
     }
 
-    $total = count ($keys);
+    $total = count($keys);
     $local = 0;
 
-    $string = get_translation_strings($langfoldername, 'langconfig');
-    $parent = isset($string['parentlanguage']) ? $string['parentlanguage'] : "";
+    $langparts = explode('-', $lang, 2);
+    $parentname = $langparts[0] ? $langparts[0] : "";
+    $parent = "";
 
     echo "Processing $lang";
-    if ($parent != "" && $parent != $lang) {
-        echo " ($parent)";
+    // Check parent language exists.
+    if ($parentname != $lang && get_langfolder($parentname)) {
+        echo " ($parentname)";
+        $parent = $parentname;
     }
 
     $langFile = false;
@@ -206,7 +211,7 @@ function build_lang($lang, $keys) {
         // Apply translations.
         if (!$string) {
             if (TOTRANSLATE) {
-                echo "\n\t\To translate $value->string on $value->file";
+                echo "\n\t\tTo translate $value->string on $value->file";
             }
             continue;
         }
@@ -215,9 +220,12 @@ function build_lang($lang, $keys) {
             // Not yet translated. Do not override.
             if ($langFile && is_array($langFile) && isset($langFile[$key])) {
                 $translations[$key] = $langFile[$key];
-                $local++;
+
+                if ($value->file == 'local_moodlemobileapp') {
+                    $local++;
+                }
             }
-            if (TOTRANSLATE) {
+            if (TOTRANSLATE && !isset($string[$value->string])) {
                 echo "\n\t\tTo translate $value->string on $value->file";
             }
             continue;
@@ -232,10 +240,20 @@ function build_lang($lang, $keys) {
             // Prevent double.
             $text = str_replace(array('{{{', '}}}'), array('{{', '}}'), $text);
         } else {
+            // @TODO: Remove that line when core.cannotconnect and core.login.invalidmoodleversion are completelly changed to use $a
+            if (($key == 'core.cannotconnect' || $key == 'core.login.invalidmoodleversion') && strpos($text, '2.4') != false) {
+                $text = str_replace('2.4', '{{$a}}', $text);
+            }
             $local++;
         }
 
         $translations[$key] = html_entity_decode($text);
+    }
+
+    if (!empty($parent)) {
+        $translations['core.parentlanguage'] = $parent;
+    } else if (isset($translations['core.parentlanguage'])) {
+        unset($translations['core.parentlanguage']);
     }
 
     // Sort and save.
@@ -244,7 +262,11 @@ function build_lang($lang, $keys) {
 
     $success = count($translations);
     $percentage = floor($success/$total * 100);
-    echo "\t\t$success of $total -> $percentage% ($local local)\n";
+    $bar = progressbar($percentage);
+    if (strlen($lang) <= 2 && !$parent) {
+        echo "\t";
+    }
+    echo "\t\t$success of $total -> $percentage% $bar ($local local)\n";
 
     if ($lang == 'en') {
         generate_local_moodlemobileapp($keys, $translations);
@@ -254,9 +276,16 @@ function build_lang($lang, $keys) {
     return true;
 }
 
+function progressbar($percentage) {
+    $done = floor($percentage/10);
+    return "\t".str_repeat('=', $done) . str_repeat('-', 10-$done);
+}
+
 function detect_lang($lang, $keys) {
     $langfoldername = get_langfolder($lang);
     if (!$langfoldername) {
+        echo "Cannot translate $lang, folder not found";
+
         return false;
     }
 
@@ -271,12 +300,12 @@ function detect_lang($lang, $keys) {
         return false;
     }
 
-    echo "Checking $lang";
+    $title = $lang;
     if ($parent != "" && $parent != $lang) {
-        echo " ($parent)";
+        $title .= " ($parent)";
     }
     $langname = $string['thislanguage'];
-    echo " ".$langname." -D";
+    $title .= " ".$langname." -D";
 
     // Add the translation to the array.
     foreach ($keys as $key => $value) {
@@ -300,7 +329,10 @@ function detect_lang($lang, $keys) {
     }
 
     $percentage = floor($success/$total * 100);
-    echo "\t\t$success of $total -> $percentage% ($local local)";
+    $bar = progressbar($percentage);
+
+    echo "Checking ".$title.str_repeat("\t", 7 - floor(mb_strlen($title, 'UTF-8')/8));
+    echo "\t$success of $total -> $percentage% $bar ($local local)";
     if (($percentage > 75 && $local > 50) || ($percentage > 50 && $local > 75)) {
         echo " \t DETECTED\n";
         return true;

@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChild, ElementRef } from '@angular/core';
 import { IonicPage, NavController, NavParams } from 'ionic-angular';
 import { TranslateService } from '@ngx-translate/core';
 import { CoreEventsProvider } from '@providers/events';
@@ -20,7 +20,7 @@ import { CoreSitesProvider } from '@providers/sites';
 import { CoreSyncProvider } from '@providers/sync';
 import { CoreDomUtilsProvider } from '@providers/utils/dom';
 import { CoreFileUploaderHelperProvider } from '@core/fileuploader/providers/helper';
-import { AddonModAssignProvider } from '../../providers/assign';
+import { AddonModAssignProvider, AddonModAssignAssign, AddonModAssignSubmission } from '../../providers/assign';
 import { AddonModAssignOfflineProvider } from '../../providers/assign-offline';
 import { AddonModAssignSyncProvider } from '../../providers/assign-sync';
 import { AddonModAssignHelperProvider } from '../../providers/helper';
@@ -34,10 +34,13 @@ import { AddonModAssignHelperProvider } from '../../providers/helper';
     templateUrl: 'edit.html',
 })
 export class AddonModAssignEditPage implements OnInit, OnDestroy {
+
+    @ViewChild('editSubmissionForm') formElement: ElementRef;
+
     title: string; // Title to display.
-    assign: any; // Assignment.
+    assign: AddonModAssignAssign; // Assignment.
     courseId: number; // Course ID the assignment belongs to.
-    userSubmission: any; // The user submission.
+    userSubmission: AddonModAssignSubmission; // The user submission.
     allowOffline: boolean; // Whether offline is allowed.
     submissionStatement: string; // The submission statement.
     submissionStatementAccepted: boolean; // Whether submission statement is accepted.
@@ -80,28 +83,29 @@ export class AddonModAssignEditPage implements OnInit, OnDestroy {
     /**
      * Check if we can leave the page or not.
      *
-     * @return {boolean|Promise<void>} Resolved if we can leave it, rejected if not.
+     * @return Resolved if we can leave it, rejected if not.
      */
-    ionViewCanLeave(): boolean | Promise<void> {
+    async ionViewCanLeave(): Promise<void> {
         if (this.forceLeave) {
-            return true;
+            return;
         }
 
         // Check if data has changed.
-        return this.hasDataChanged().then((changed) => {
-            if (changed) {
-                return this.domUtils.showConfirm(this.translate.instant('core.confirmcanceledit'));
-            }
-        }).then(() => {
-            // Nothing has changed or user confirmed to leave. Clear temporary data from plugins.
-            this.assignHelper.clearSubmissionPluginTmpData(this.assign, this.userSubmission, this.getInputData());
-        });
+        const changed = await this.hasDataChanged();
+        if (changed) {
+            await this.domUtils.showConfirm(this.translate.instant('core.confirmcanceledit'));
+        }
+
+        // Nothing has changed or user confirmed to leave. Clear temporary data from plugins.
+        this.assignHelper.clearSubmissionPluginTmpData(this.assign, this.userSubmission, this.getInputData());
+
+        this.domUtils.triggerFormCancelledEvent(this.formElement, this.sitesProvider.getCurrentSiteId());
     }
 
     /**
      * Fetch assignment data.
      *
-     * @return {Promise<any>} Promise resolved when done.
+     * @return Promise resolved when done.
      */
     protected fetchAssignment(): Promise<any> {
         const currentUserId = this.sitesProvider.getCurrentSiteUserId();
@@ -129,7 +133,7 @@ export class AddonModAssignEditPage implements OnInit, OnDestroy {
                     const userSubmission = this.assignProvider.getSubmissionObjectFromAttempt(this.assign, response.lastattempt);
 
                     // Check if the user can edit it in offline.
-                    return this.assignHelper.canEditSubmissionOffline(this.assign, userSubmission).then((canEditOffline) => {
+                    return this.assignHelper.canEditSubmissionOffline(this.assign, userSubmission).then((canEditOffline): any => {
                         if (canEditOffline) {
                             return response;
                         }
@@ -175,7 +179,7 @@ export class AddonModAssignEditPage implements OnInit, OnDestroy {
     /**
      * Get the input data.
      *
-     * @return {any} Input data.
+     * @return Input data.
      */
     protected getInputData(): any {
         return this.domUtils.getDataFromForm(document.forms['addon-mod_assign-edit-form']);
@@ -184,7 +188,7 @@ export class AddonModAssignEditPage implements OnInit, OnDestroy {
     /**
      * Check if data has changed.
      *
-     * @return {Promise<boolean>} Promise resolved with boolean: whether data has changed.
+     * @return Promise resolved with boolean: whether data has changed.
      */
     protected hasDataChanged(): Promise<boolean> {
         // Usually the hasSubmissionDataChanged call will be resolved inmediately, causing the modal to be shown just an instant.
@@ -220,8 +224,8 @@ export class AddonModAssignEditPage implements OnInit, OnDestroy {
     /**
      * Get data to submit based on the input data.
      *
-     * @param {any} inputData The input data.
-     * @return {Promise<any>} Promise resolved with the data to submit.
+     * @param inputData The input data.
+     * @return Promise resolved with the data to submit.
      */
     protected prepareSubmissionData(inputData: any): Promise<any> {
         // If there's offline data, always save it in offline.
@@ -263,71 +267,80 @@ export class AddonModAssignEditPage implements OnInit, OnDestroy {
     /**
      * Save the submission.
      *
-     * @return {Promise<any>} Promise resolved when done.
+     * @return Promise resolved when done.
      */
-    protected saveSubmission(): Promise<any> {
+    protected async saveSubmission(): Promise<void> {
         const inputData = this.getInputData();
 
         if (this.submissionStatement && (!inputData.submissionstatement || inputData.submissionstatement === 'false')) {
-            return Promise.reject(this.translate.instant('addon.mod_assign.acceptsubmissionstatement'));
+            throw this.translate.instant('addon.mod_assign.acceptsubmissionstatement');
         }
 
         let modal = this.domUtils.showModalLoading();
+        let size;
 
         // Get size to ask for confirmation.
-        return this.assignHelper.getSubmissionSizeForEdit(this.assign, this.userSubmission, inputData).catch(() => {
+        try {
+            size = await this.assignHelper.getSubmissionSizeForEdit(this.assign, this.userSubmission, inputData);
+        } catch (error) {
             // Error calculating size, return -1.
-            return -1;
-        }).then((size) => {
-            modal.dismiss();
+            size = -1;
+        }
 
+        modal.dismiss();
+
+        try {
             // Confirm action.
-            return this.fileUploaderHelper.confirmUploadFile(size, true, this.allowOffline);
-        }).then(() => {
+            await this.fileUploaderHelper.confirmUploadFile(size, true, this.allowOffline);
+
             modal = this.domUtils.showModalLoading('core.sending', true);
 
-            return this.prepareSubmissionData(inputData).then((pluginData) => {
-                if (!Object.keys(pluginData).length) {
-                    // Nothing to save.
-                    return;
-                }
+            const pluginData = await this.prepareSubmissionData(inputData);
+            if (!Object.keys(pluginData).length) {
+                // Nothing to save.
+                return;
+            }
 
-                let promise;
+            let sent: boolean;
 
-                if (this.saveOffline) {
-                    // Save submission in offline.
-                    promise = this.assignOfflineProvider.saveSubmission(this.assign.id, this.courseId, pluginData,
-                            this.userSubmission.timemodified, !this.assign.submissiondrafts, this.userId);
-                } else {
-                    // Try to send it to server.
-                    promise = this.assignProvider.saveSubmission(this.assign.id, this.courseId, pluginData, this.allowOffline,
-                            this.userSubmission.timemodified, this.assign.submissiondrafts, this.userId);
-                }
+            if (this.saveOffline) {
+                // Save submission in offline.
+                sent = false;
+                await this.assignOfflineProvider.saveSubmission(this.assign.id, this.courseId, pluginData,
+                        this.userSubmission.timemodified, !this.assign.submissiondrafts, this.userId);
+            } else {
+                // Try to send it to server.
+                sent = await this.assignProvider.saveSubmission(this.assign.id, this.courseId, pluginData, this.allowOffline,
+                        this.userSubmission.timemodified, !!this.assign.submissiondrafts, this.userId);
+            }
 
-                return promise.then(() => {
-                    // Clear temporary data from plugins.
-                    return this.assignHelper.clearSubmissionPluginTmpData(this.assign, this.userSubmission, inputData);
-                }).then(() => {
-                    // Submission saved, trigger event.
-                    const params = {
-                        assignmentId: this.assign.id,
-                        submissionId: this.userSubmission.id,
-                        userId: this.userId,
-                    };
+            // Clear temporary data from plugins.
+            await this.assignHelper.clearSubmissionPluginTmpData(this.assign, this.userSubmission, inputData);
 
-                    this.eventsProvider.trigger(AddonModAssignProvider.SUBMISSION_SAVED_EVENT, params,
-                            this.sitesProvider.getCurrentSiteId());
+            if (sent) {
+                this.eventsProvider.trigger(CoreEventsProvider.ACTIVITY_DATA_SENT, { module: 'assign' });
+            }
 
-                    if (!this.assign.submissiondrafts) {
-                        // No drafts allowed, so it was submitted. Trigger event.
-                        this.eventsProvider.trigger(AddonModAssignProvider.SUBMITTED_FOR_GRADING_EVENT, params,
-                                this.sitesProvider.getCurrentSiteId());
-                    }
-                });
-            });
-        }).finally(() => {
+            // Submission saved, trigger events.
+            this.domUtils.triggerFormSubmittedEvent(this.formElement, sent, this.sitesProvider.getCurrentSiteId());
+
+            const params = {
+                assignmentId: this.assign.id,
+                submissionId: this.userSubmission.id,
+                userId: this.userId,
+            };
+
+            this.eventsProvider.trigger(AddonModAssignProvider.SUBMISSION_SAVED_EVENT, params,
+                    this.sitesProvider.getCurrentSiteId());
+
+            if (!this.assign.submissiondrafts) {
+                // No drafts allowed, so it was submitted. Trigger event.
+                this.eventsProvider.trigger(AddonModAssignProvider.SUBMITTED_FOR_GRADING_EVENT, params,
+                        this.sitesProvider.getCurrentSiteId());
+            }
+        } finally {
             modal.dismiss();
-        });
+        }
     }
 
     /**

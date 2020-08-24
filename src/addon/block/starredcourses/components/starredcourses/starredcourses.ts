@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,9 +14,8 @@
 
 import { Component, OnInit, OnDestroy, Injector, Input, OnChanges, SimpleChange } from '@angular/core';
 import { CoreEventsProvider } from '@providers/events';
-import { CoreUtilsProvider } from '@providers/utils/utils';
 import { CoreSitesProvider } from '@providers/sites';
-import { CoreCoursesProvider } from '@core/courses/providers/courses';
+import { CoreCoursesProvider, CoreCoursesMyCoursesUpdatedEventData } from '@core/courses/providers/courses';
 import { CoreCoursesHelperProvider } from '@core/courses/providers/helper';
 import { CoreCourseHelperProvider } from '@core/course/providers/helper';
 import { CoreCourseOptionsDelegate } from '@core/course/providers/options-delegate';
@@ -38,16 +37,19 @@ export class AddonBlockStarredCoursesComponent extends CoreBlockBaseComponent im
         icon: '',
         badge: ''
     };
+    downloadCourseEnabled: boolean;
+    downloadCoursesEnabled: boolean;
 
     protected prefetchIconsInitialized = false;
     protected isDestroyed;
     protected coursesObserver;
+    protected updateSiteObserver;
     protected courseIds = [];
     protected fetchContentDefaultError = 'Error getting starred courses data.';
 
     constructor(injector: Injector, private coursesProvider: CoreCoursesProvider,
             private courseCompletionProvider: AddonCourseCompletionProvider, private eventsProvider: CoreEventsProvider,
-            private courseHelper: CoreCourseHelperProvider, private utils: CoreUtilsProvider,
+            private courseHelper: CoreCourseHelperProvider,
             private courseOptionsDelegate: CoreCourseOptionsDelegate, private coursesHelper: CoreCoursesHelperProvider,
             private sitesProvider: CoreSitesProvider) {
 
@@ -59,7 +61,23 @@ export class AddonBlockStarredCoursesComponent extends CoreBlockBaseComponent im
      */
     ngOnInit(): void {
 
-        this.coursesObserver = this.eventsProvider.on(CoreCoursesProvider.EVENT_MY_COURSES_UPDATED, () => {
+        // Refresh the enabled flags if enabled.
+        this.downloadCourseEnabled = !this.coursesProvider.isDownloadCourseDisabledInSite();
+        this.downloadCoursesEnabled = !this.coursesProvider.isDownloadCoursesDisabledInSite();
+
+        // Refresh the enabled flags if site is updated.
+        this.updateSiteObserver = this.eventsProvider.on(CoreEventsProvider.SITE_UPDATED, () => {
+            this.downloadCourseEnabled = !this.coursesProvider.isDownloadCourseDisabledInSite();
+            this.downloadCoursesEnabled = !this.coursesProvider.isDownloadCoursesDisabledInSite();
+
+        }, this.sitesProvider.getCurrentSiteId());
+
+        this.coursesObserver = this.eventsProvider.on(CoreCoursesProvider.EVENT_MY_COURSES_UPDATED,
+                (data: CoreCoursesMyCoursesUpdatedEventData) => {
+
+            if (this.shouldRefreshOnUpdatedEvent(data)) {
+                this.refreshCourseList();
+            }
             this.refreshContent();
         }, this.sitesProvider.getCurrentSiteId());
 
@@ -79,7 +97,7 @@ export class AddonBlockStarredCoursesComponent extends CoreBlockBaseComponent im
     /**
      * Perform the invalidate content function.
      *
-     * @return {Promise<any>} Resolved when done.
+     * @return Resolved when done.
      */
     protected invalidateContent(): Promise<any> {
         const promises = [];
@@ -104,14 +122,55 @@ export class AddonBlockStarredCoursesComponent extends CoreBlockBaseComponent im
     /**
      * Fetch the courses.
      *
-     * @return {Promise<any>} Promise resolved when done.
+     * @return Promise resolved when done.
      */
     protected fetchContent(): Promise<any> {
-        return this.coursesHelper.getUserCoursesWithOptions('timemodified', 0, 'isfavourite').then((courses) => {
+        const showCategories = this.block.configs && this.block.configs.displaycategories &&
+            this.block.configs.displaycategories.value == '1';
+
+        return this.coursesHelper.getUserCoursesWithOptions('timemodified', 0, 'isfavourite', showCategories).then((courses) => {
             this.courses = courses;
 
             this.initPrefetchCoursesIcons();
         });
+    }
+
+    /**
+     * Refresh the list of courses.
+     *
+     * @return Promise resolved when done.
+     */
+    protected async refreshCourseList(): Promise<void> {
+        this.eventsProvider.trigger(CoreCoursesProvider.EVENT_MY_COURSES_REFRESHED);
+
+        try {
+            await this.coursesProvider.invalidateUserCourses();
+        } catch (error) {
+            // Ignore errors.
+        }
+
+        await this.loadContent(true);
+    }
+
+    /**
+     * Whether list should be refreshed based on a EVENT_MY_COURSES_UPDATED event.
+     *
+     * @param data Event data.
+     * @return Whether to refresh.
+     */
+    protected shouldRefreshOnUpdatedEvent(data: CoreCoursesMyCoursesUpdatedEventData): boolean {
+        if (data.action == CoreCoursesProvider.ACTION_ENROL) {
+            // Always update if user enrolled in a course.
+            // New courses shouldn't be favourite by default, but just in case.
+            return true;
+        }
+
+        if (data.action == CoreCoursesProvider.ACTION_STATE_CHANGED && data.state == CoreCoursesProvider.STATE_FAVOURITE) {
+            // Update list when making a course favourite or not.
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -133,7 +192,7 @@ export class AddonBlockStarredCoursesComponent extends CoreBlockBaseComponent im
     /**
      * Prefetch all the shown courses.
      *
-     * @return {Promise<any>} Promise resolved when done.
+     * @return Promise resolved when done.
      */
     prefetchCourses(): Promise<any> {
         const initialIcon = this.prefetchCoursesData.icon;
@@ -152,5 +211,6 @@ export class AddonBlockStarredCoursesComponent extends CoreBlockBaseComponent im
     ngOnDestroy(): void {
         this.isDestroyed = true;
         this.coursesObserver && this.coursesObserver.off();
+        this.updateSiteObserver && this.updateSiteObserver.off();
     }
 }

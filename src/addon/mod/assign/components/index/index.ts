@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@ import { Content, NavController } from 'ionic-angular';
 import { CoreGroupsProvider, CoreGroupInfo } from '@providers/groups';
 import { CoreTimeUtilsProvider } from '@providers/utils/time';
 import { CoreCourseModuleMainActivityComponent } from '@core/course/classes/main-activity-component';
-import { AddonModAssignProvider } from '../../providers/assign';
+import { AddonModAssignProvider, AddonModAssignAssign, AddonModAssignSubmissionGradingSummary } from '../../providers/assign';
 import { AddonModAssignHelperProvider } from '../../providers/helper';
 import { AddonModAssignOfflineProvider } from '../../providers/assign-offline';
 import { AddonModAssignSyncProvider } from '../../providers/assign-sync';
@@ -36,13 +36,13 @@ export class AddonModAssignIndexComponent extends CoreCourseModuleMainActivityCo
     component = AddonModAssignProvider.COMPONENT;
     moduleName = 'assign';
 
-    assign: any; // The assign object.
+    assign: AddonModAssignAssign; // The assign object.
     canViewAllSubmissions: boolean; // Whether the user can view all submissions.
     canViewOwnSubmission: boolean; // Whether the user can view their own submission.
     timeRemaining: string; // Message about time remaining to submit.
     lateSubmissions: string; // Message about late submissions.
     showNumbers = true; // Whether to show number of submissions with each status.
-    summary: any; // The summary.
+    summary: AddonModAssignSubmissionGradingSummary; // The grading summary.
     needsGradingAvalaible: boolean; // Whether we can see the submissions that need grading.
 
     groupInfo: CoreGroupInfo = {
@@ -133,18 +133,25 @@ export class AddonModAssignIndexComponent extends CoreCourseModuleMainActivityCo
         ev && ev.stopPropagation();
 
         if (this.assign && (this.description || this.assign.introattachments)) {
-            this.textUtils.expandText(this.translate.instant('core.description'), this.description, this.component,
-                    this.module.id, this.assign.introattachments);
+            this.textUtils.viewText(this.translate.instant('core.description'), this.description, {
+                component: this.component,
+                componentId: this.module.id,
+                files: this.assign.introattachments,
+                filter: true,
+                contextLevel: 'module',
+                instanceId: this.module.id,
+                courseId: this.courseId,
+            });
         }
     }
 
     /**
      * Get assignment data.
      *
-     * @param {boolean} [refresh=false] If it's refreshing content.
-     * @param {boolean} [sync=false] If it should try to sync.
-     * @param {boolean} [showErrors=false] If show errors to the user of hide them.
-     * @return {Promise<any>} Promise resolved when done.
+     * @param refresh If it's refreshing content.
+     * @param sync If it should try to sync.
+     * @param showErrors If show errors to the user of hide them.
+     * @return Promise resolved when done.
      */
     protected fetchContent(refresh: boolean = false, sync: boolean = false, showErrors: boolean = false): Promise<any> {
 
@@ -153,7 +160,7 @@ export class AddonModAssignIndexComponent extends CoreCourseModuleMainActivityCo
             this.assign = assignData;
 
             this.dataRetrieved.emit(this.assign);
-            this.description = this.assign.intro || this.description;
+            this.description = this.assign.intro;
 
             if (sync) {
                 // Try to synchronize the assign.
@@ -200,9 +207,10 @@ export class AddonModAssignIndexComponent extends CoreCourseModuleMainActivityCo
 
                     // Check if groupmode is enabled to avoid showing wrong numbers.
                     return this.groupsProvider.getActivityGroupInfo(this.assign.cmid, false).then((groupInfo) => {
+                        const currentSite = this.sitesProvider.getCurrentSite();
                         this.groupInfo = groupInfo;
                         this.showNumbers = groupInfo.groups.length == 0 ||
-                            this.sitesProvider.getCurrentSite().isVersionGreaterEqualThan('3.5');
+                            (currentSite && currentSite.isVersionGreaterEqualThan('3.5'));
 
                         return this.setGroup(this.groupsProvider.validateGroupId(this.group, groupInfo));
                     });
@@ -219,8 +227,7 @@ export class AddonModAssignIndexComponent extends CoreCourseModuleMainActivityCo
                     }
                 });
             });
-        }).then(() => {
-            // All data obtained, now fill the context menu.
+        }).finally(() => {
             this.fillContextMenu(refresh);
         });
     }
@@ -228,25 +235,42 @@ export class AddonModAssignIndexComponent extends CoreCourseModuleMainActivityCo
     /**
      * Set group to see the summary.
      *
-     * @param  {number}       groupId Group ID.
-     * @return {Promise<any>}         Resolved when done.
+     * @param groupId Group ID.
+     * @return Resolved when done.
      */
     setGroup(groupId: number): Promise<any> {
         this.group = groupId;
 
         return this.assignProvider.getSubmissionStatus(this.assign.id, undefined, this.group).then((response) => {
             this.summary = response.gradingsummary;
+            if (typeof this.summary.warnofungroupedusers == 'boolean' && this.summary.warnofungroupedusers) {
+                this.summary.warnofungroupedusers = 'ungroupedusers';
+            } else {
+                switch (this.summary.warnofungroupedusers) {
+                    case AddonModAssignProvider.WARN_GROUPS_REQUIRED:
+                        this.summary.warnofungroupedusers = 'ungroupedusers';
+                        break;
+                    case AddonModAssignProvider.WARN_GROUPS_OPTIONAL:
+                        this.summary.warnofungroupedusers = 'ungroupedusersoptional';
+                        break;
+                    default:
+                        this.summary.warnofungroupedusers = '';
+                        break;
+                }
+            }
+
+            const currentSite = this.sitesProvider.getCurrentSite();
 
             this.needsGradingAvalaible = response.gradingsummary && response.gradingsummary.submissionsneedgradingcount > 0 &&
-                    this.sitesProvider.getCurrentSite().isVersionGreaterEqualThan('3.2');
+                    currentSite && currentSite.isVersionGreaterEqualThan('3.2');
         });
     }
 
     /**
      * Go to view a list of submissions.
      *
-     * @param {string} status Status to see.
-     * @param {number} count Number of submissions with the status.
+     * @param status Status to see.
+     * @param count Number of submissions with the status.
      */
     goToSubmissionList(status: string, count: number): void {
         if (typeof status == 'undefined') {
@@ -270,8 +294,8 @@ export class AddonModAssignIndexComponent extends CoreCourseModuleMainActivityCo
     /**
      * Checks if sync has succeed from result sync data.
      *
-     * @param {any} result Data returned by the sync function.
-     * @return {boolean} If succeed or not.
+     * @param result Data returned by the sync function.
+     * @return If succeed or not.
      */
     protected hasSyncSucceed(result: any): boolean {
         if (result.updated) {
@@ -284,7 +308,7 @@ export class AddonModAssignIndexComponent extends CoreCourseModuleMainActivityCo
     /**
      * Perform the invalidate content function.
      *
-     * @return {Promise<any>} Resolved when done.
+     * @return Resolved when done.
      */
     protected invalidateContent(): Promise<any> {
         const promises = [];
@@ -325,8 +349,8 @@ export class AddonModAssignIndexComponent extends CoreCourseModuleMainActivityCo
     /**
      * Compares sync event data with current data to check if refresh content is needed.
      *
-     * @param {any} syncEventData Data receiven on sync observer.
-     * @return {boolean}          True if refresh is needed, false otherwise.
+     * @param syncEventData Data receiven on sync observer.
+     * @return True if refresh is needed, false otherwise.
      */
     protected isRefreshSyncNeeded(syncEventData: any): boolean {
         if (this.assign && syncEventData.assignId == this.assign.id) {
@@ -344,7 +368,7 @@ export class AddonModAssignIndexComponent extends CoreCourseModuleMainActivityCo
     /**
      * Performs the sync of the activity.
      *
-     * @return {Promise<any>} Promise resolved when done.
+     * @return Promise resolved when done.
      */
     protected sync(): Promise<any> {
         return this.syncProvider.syncAssign(this.assign.id);

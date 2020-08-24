@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ import { AddonModWorkshopIndexComponent } from './index/index';
 import { AddonModWorkshopSubmissionComponent } from './submission/submission';
 import { AddonModWorkshopAssessmentComponent } from './assessment/assessment';
 import { AddonModWorkshopAssessmentStrategyComponent } from './assessment-strategy/assessment-strategy';
+import { CoreEditorComponentsModule } from '@core/editor/components/components.module';
 
 @NgModule({
     declarations: [
@@ -39,7 +40,8 @@ import { AddonModWorkshopAssessmentStrategyComponent } from './assessment-strate
         CoreComponentsModule,
         CoreDirectivesModule,
         CorePipesModule,
-        CoreCourseComponentsModule
+        CoreCourseComponentsModule,
+        CoreEditorComponentsModule,
     ],
     providers: [
     ],

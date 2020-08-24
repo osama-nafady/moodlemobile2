@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,13 +13,12 @@
 // limitations under the License.
 
 import { Component, Injector } from '@angular/core';
-import { CoreAppProvider } from '@providers/app';
 import { CoreUtilsProvider } from '@providers/utils/utils';
-import { CoreCourseProvider } from '@core/course/providers/course';
-import { CoreCourseModuleMainResourceComponent } from '@core/course/classes/main-resource-component';
-import { AddonModPageProvider } from '../../providers/page';
+import {
+    CoreCourseModuleMainResourceComponent, CoreCourseResourceDownloadResult
+} from '@core/course/classes/main-resource-component';
+import { AddonModPageProvider, AddonModPagePage } from '../../providers/page';
 import { AddonModPageHelperProvider } from '../../providers/helper';
-import { AddonModPagePrefetchHandler } from '../../providers/prefetch-handler';
 
 /**
  * Component that displays a page.
@@ -34,13 +33,15 @@ export class AddonModPageIndexComponent extends CoreCourseModuleMainResourceComp
     contents: any;
     displayDescription = true;
     displayTimemodified = true;
-    page: any;
+    page: AddonModPagePage;
+    warning: string;
 
     protected fetchContentDefaultError = 'addon.mod_page.errorwhileloadingthepage';
 
-    constructor(injector: Injector, private pageProvider: AddonModPageProvider, private courseProvider: CoreCourseProvider,
-            private appProvider: CoreAppProvider, private pageHelper: AddonModPageHelperProvider,
-            private pagePrefetch: AddonModPagePrefetchHandler, private utils: CoreUtilsProvider) {
+    constructor(injector: Injector,
+            protected pageProvider: AddonModPageProvider,
+            protected pageHelper: AddonModPageHelperProvider,
+            protected utils: CoreUtilsProvider) {
         super(injector);
     }
 
@@ -64,7 +65,7 @@ export class AddonModPageIndexComponent extends CoreCourseModuleMainResourceComp
     /**
      * Perform the invalidate content function.
      *
-     * @return {Promise<any>} Resolved when done.
+     * @return Resolved when done.
      */
     protected invalidateContent(): Promise<any> {
         return this.pageProvider.invalidateContent(this.module.id, this.courseId);
@@ -73,21 +74,15 @@ export class AddonModPageIndexComponent extends CoreCourseModuleMainResourceComp
     /**
      * Download page contents.
      *
-     * @param {boolean} [refresh] Whether we're refreshing data.
-     * @return {Promise<any>} Promise resolved when done.
+     * @param refresh Whether we're refreshing data.
+     * @return Promise resolved when done.
      */
     protected fetchContent(refresh?: boolean): Promise<any> {
-        let downloadFailed = false;
+        let downloadResult: CoreCourseResourceDownloadResult;
 
-        // Download content. This function also loads module contents if needed.
-        return this.pagePrefetch.download(this.module, this.courseId).catch(() => {
-            // Mark download as failed but go on since the main files could have been downloaded.
-            downloadFailed = true;
-        }).then(() => {
-            if (!this.module.contents.length) {
-                // Try to load module contents for offline usage.
-                return this.courseProvider.loadModuleContents(this.module, this.courseId);
-            }
+        // Download the resource if it needs to be downloaded.
+        return this.downloadResourceIfNeeded(refresh).then((result) => {
+            downloadResult = result;
         }).then(() => {
             const promises = [];
 
@@ -109,8 +104,8 @@ export class AddonModPageIndexComponent extends CoreCourseModuleMainResourceComp
                         this.page = page;
 
                         // Check if description and timemodified should be displayed.
-                        if (page.displayoptions) {
-                            const options = this.textUtils.unserialize(page.displayoptions) || {};
+                        if (this.page.displayoptions) {
+                            const options = this.textUtils.unserialize(this.page.displayoptions) || {};
                             this.displayDescription = typeof options.printintro == 'undefined' ||
                                     this.utils.isTrueOrOne(options.printintro);
                             this.displayTimemodified = typeof options.printlastmodified == 'undefined' ||
@@ -127,18 +122,14 @@ export class AddonModPageIndexComponent extends CoreCourseModuleMainResourceComp
 
             // Get the page HTML.
             promises.push(this.pageHelper.getPageHtml(this.module.contents, this.module.id).then((content) => {
-                // All data obtained, now fill the context menu.
-                this.fillContextMenu(refresh);
 
                 this.contents = content;
-
-                if (downloadFailed && this.appProvider.isOnline()) {
-                    // We could load the main file but the download failed. Show error message.
-                    this.domUtils.showErrorModal('core.errordownloadingsomefiles', true);
-                }
+                this.warning = downloadResult.failed ? this.getErrorDownloadingSomeFilesMessage(downloadResult.error) : '';
             }));
 
             return Promise.all(promises);
+        }).finally(() => {
+            this.fillContextMenu(refresh);
         });
     }
 }

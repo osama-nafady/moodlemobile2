@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 import { Component, OnInit } from '@angular/core';
 import { NavParams, ViewController } from 'ionic-angular';
 import { CoreCoursesProvider } from '../../providers/courses';
+import { CoreConstants } from '@core/constants';
 
 /**
  * This component is meant to display a popover with the course options.
@@ -25,12 +26,14 @@ import { CoreCoursesProvider } from '../../providers/courses';
 })
 export class CoreCoursesCourseOptionsMenuComponent implements OnInit {
     course: any; // The course.
+    courseStatus: string; // The course status.
     prefetch: any; // The prefecth info.
 
     downloadCourseEnabled: boolean;
 
     constructor(navParams: NavParams, private viewCtrl: ViewController, private coursesProvider: CoreCoursesProvider) {
         this.course = navParams.get('course') || {};
+        this.courseStatus = navParams.get('courseStatus') || CoreConstants.NOT_DOWNLOADED;
         this.prefetch = navParams.get('prefetch') || {};
     }
 
@@ -43,7 +46,7 @@ export class CoreCoursesCourseOptionsMenuComponent implements OnInit {
 
     /**
      * Do an action over the course.
-     * @param {string} action Action name to take.
+     * @param action Action name to take.
      */
     action(action: string): void {
         this.viewCtrl.dismiss(action);

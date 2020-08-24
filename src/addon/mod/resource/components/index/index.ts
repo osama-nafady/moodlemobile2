@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,13 +13,12 @@
 // limitations under the License.
 
 import { Component, Injector } from '@angular/core';
-import { CoreAppProvider } from '@providers/app';
-import { CoreSitesProvider } from '@providers/sites';
+import { CoreFilepoolProvider } from '@providers/filepool';
 import { CoreUtilsProvider } from '@providers/utils/utils';
-import { CoreCourseProvider } from '@core/course/providers/course';
-import { CoreCourseModuleMainResourceComponent } from '@core/course/classes/main-resource-component';
+import {
+    CoreCourseModuleMainResourceComponent, CoreCourseResourceDownloadResult
+} from '@core/course/classes/main-resource-component';
 import { AddonModResourceProvider } from '../../providers/resource';
-import { AddonModResourcePrefetchHandler } from '../../providers/prefetch-handler';
 import { AddonModResourceHelperProvider } from '../../providers/helper';
 
 /**
@@ -36,11 +35,14 @@ export class AddonModResourceIndexComponent extends CoreCourseModuleMainResource
     mode: string;
     src: string;
     contentText: string;
+    displayDescription = true;
+    warning: string;
 
-    constructor(injector: Injector, private resourceProvider: AddonModResourceProvider, private courseProvider: CoreCourseProvider,
-            private appProvider: CoreAppProvider, private prefetchHandler: AddonModResourcePrefetchHandler,
-            private resourceHelper: AddonModResourceHelperProvider, private sitesProvider: CoreSitesProvider,
-            private utils: CoreUtilsProvider) {
+    constructor(injector: Injector,
+            protected resourceProvider: AddonModResourceProvider,
+            protected resourceHelper: AddonModResourceHelperProvider,
+            protected utils: CoreUtilsProvider,
+            protected filepoolProvider: CoreFilepoolProvider) {
         super(injector);
     }
 
@@ -64,7 +66,7 @@ export class AddonModResourceIndexComponent extends CoreCourseModuleMainResource
     /**
      * Perform the invalidate content function.
      *
-     * @return {Promise<any>} Resolved when done.
+     * @return Resolved when done.
      */
     protected invalidateContent(): Promise<any> {
         return this.resourceProvider.invalidateContent(this.module.id, this.courseId);
@@ -73,8 +75,8 @@ export class AddonModResourceIndexComponent extends CoreCourseModuleMainResource
     /**
      * Download resource contents.
      *
-     * @param {boolean} [refresh] Whether we're refreshing data.
-     * @return {Promise<any>} Promise resolved when done.
+     * @param refresh Whether we're refreshing data.
+     * @return Promise resolved when done.
      */
     protected fetchContent(refresh?: boolean): Promise<any> {
         // Load module contents if needed. Passing refresh is needed to force reloading contents.
@@ -96,15 +98,16 @@ export class AddonModResourceIndexComponent extends CoreCourseModuleMainResource
         }).then((resource) => {
             if (resource) {
                 this.description = resource.intro || resource.description;
+                const options = this.textUtils.unserialize(resource.displayoptions) || {};
+                this.displayDescription = typeof options.printintro == 'undefined' || !!options.printintro;
                 this.dataRetrieved.emit(resource);
             }
 
             if (this.resourceHelper.isDisplayedInIframe(this.module)) {
-                let downloadFailed = false;
+                let downloadResult: CoreCourseResourceDownloadResult;
 
-                return this.prefetchHandler.download(this.module, this.courseId).catch(() => {
-                    // Mark download as failed but go on since the main files could have been downloaded.
-                    downloadFailed = true;
+                return this.downloadResourceIfNeeded(refresh, true).then((result) => {
+                    downloadResult = result;
                 }).then(() => {
                     return this.resourceHelper.getIframeSrc(this.module).then((src) => {
                         this.mode = 'iframe';
@@ -120,38 +123,46 @@ export class AddonModResourceIndexComponent extends CoreCourseModuleMainResource
                             this.src = src;
                         }
 
-                        if (downloadFailed && this.appProvider.isOnline()) {
-                            // We could load the main file but the download failed. Show error message.
-                            this.domUtils.showErrorModal('core.errordownloadingsomefiles', true);
-                        }
+                        this.warning = downloadResult.failed ? this.getErrorDownloadingSomeFilesMessage(downloadResult.error) : '';
                     });
                 });
             } else if (this.resourceHelper.isDisplayedEmbedded(this.module, resource && resource.display)) {
                 this.mode = 'embedded';
+                this.warning = '';
 
                 return this.resourceHelper.getEmbeddedHtml(this.module, this.courseId).then((html) => {
                     this.contentText = html;
+
+                    this.mode = this.contentText.length > 0 ? 'embedded' : 'external';
                 });
             } else {
                 this.mode = 'external';
+                this.warning = '';
             }
-        }).then(() => {
-            // All data obtained, now fill the context menu.
+        }).finally(() => {
             this.fillContextMenu(refresh);
         });
     }
 
     /**
      * Opens a file.
+     *
+     * @return Promise resolved when done.
      */
-    open(): void {
-        this.prefetchHandler.isDownloadable(this.module, this.courseId).then((downloadable) => {
+    async open(): Promise<void> {
+        let downloadable = await this.modulePrefetchDelegate.isModuleDownloadable(this.module, this.courseId);
+
+        if (downloadable) {
+            // Check if the main file is downloadle.
+            // This isn't done in "isDownloadable" to prevent extra WS calls in the course page.
+            downloadable = await this.resourceHelper.isMainFileDownloadable(this.module);
+
             if (downloadable) {
-                this.resourceHelper.openModuleFile(this.module, this.courseId);
-            } else {
-                // The resource cannot be downloaded, open the activity in browser.
-                return this.sitesProvider.getCurrentSite().openInBrowserWithAutoLoginIfSameSite(this.module.url);
+                return this.resourceHelper.openModuleFile(this.module, this.courseId);
             }
-        });
+        }
+
+        // The resource cannot be downloaded, open the activity in browser.
+        return this.sitesProvider.getCurrentSite().openInBrowserWithAutoLoginIfSameSite(this.module.url);
     }
 }

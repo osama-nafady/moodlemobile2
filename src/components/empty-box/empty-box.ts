@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -32,6 +32,7 @@ export class CoreEmptyBoxComponent {
     @Input() image?: string; // Image source. If an icon is provided, image won't be used.
     @Input() inline?: boolean; // If this has to be shown inline instead of occupying whole page.
                                // If image or icon is not supplied, it's true by default.
+    @Input() flipIconRtl?: boolean; // Whether to flip the icon in RTL. Defaults to false.
 
     constructor() {
         // Nothing to do.

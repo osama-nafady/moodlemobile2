@@ -15,6 +15,16 @@ ion-app.app-root core-course-module {
         .core-module-icon {
             align-items: flex-start;
         }
+
+        cursor: pointer;
+        &.item-ios:active,
+        &.item-ios.activated {
+            background-color: $list-ios-activated-background-color;
+        }
+        &.item-md:active,
+        &.item-md.activated {
+            background-color: $list-md-activated-background-color;
+        }
     }
 
     .core-module-title {
@@ -64,9 +74,40 @@ ion-app.app-root core-course-module {
         }
     }
 
-    .core-not-clickable:active,
-    .core-not-clickable.activated {
-        background-color: $list-background-color;
+    .core-not-clickable {
+        cursor: initial;
+
+        &:active,
+        &.activated {
+            background-color: $list-background-color;
+        }
+    }
+
+    .core-module-loading {
+        width: 100%;
+        text-align: center;
+        padding-top: 10px;
+        clear: both;
+        @include darkmode() {
+            color: $core-dark-text-color;
+        }
+    }
+
+    @include darkmode() {
+        .item.core-course-module-handler {
+            background: $core-dark-item-bg-color;
+            &.item-ios:active,
+            &.item-ios.activated,
+            &.item-md:active,
+            &.item-md.activated {
+              background-color: $core-dark-background-color;
+            }
+        }
+
+        .core-not-clickable:active,
+        .core-not-clickable.activated {
+            background-color: $core-dark-item-bg-color;
+        }
     }
 }
 
@@ -124,33 +165,6 @@ ion-app.app-root.ios core-course-module {
     .core-module-buttons-more {
         min-height: 53px;
         min-width: 58px;
-    }
-}
-
-ion-app.app-root.wp core-course-module {
-    .core-module-description {
-        @include padding(null, $item-wp-padding-end / 2, null, null);
-        margin-bottom: $label-md-margin-bottom;
-
-        .core-show-more {
-            @include padding(null, $item-wp-padding-end / 2, null, null);
-        }
-    }
-
-    .item.core-course-module-handler .core-module-icon {
-        margin-top: $item-wp-padding-top;
-        margin-bottom: $item-wp-padding-bottom;
-        width: 24px;
-        height: 24px;
-    }
-
-    .core-module-title core-format-text {
-        padding-top: $item-wp-padding-top + 3;
-    }
-
-    .button-wp {
-        margin-top: 8px;
-        margin-bottom: 8px;
     }
 }
 

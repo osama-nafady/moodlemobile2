@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Component, Input, Output, EventEmitter, OnInit } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, ViewChild, ElementRef } from '@angular/core';
 import { CoreAppProvider } from '@providers/app';
 import { CoreConfigProvider } from '@providers/config';
 import { CoreEventsProvider } from '@providers/events';
 import { CoreSitesProvider } from '@providers/sites';
 import { CoreUtilsProvider } from '@providers/utils/utils';
 import { CoreTextUtilsProvider } from '@providers/utils/text';
+import { CoreDomUtilsProvider } from '@providers/utils/dom';
 import { CoreConstants } from '@core/constants';
 
 /**
@@ -39,13 +40,21 @@ export class CoreSendMessageFormComponent implements OnInit {
     @Input() message: string; // Input text.
     @Input() placeholder = ''; // Placeholder for the input area.
     @Input() showKeyboard = false; // If keyboard is shown or not.
+    @Input() sendDisabled = false; // If send is disabled.
     @Output() onSubmit: EventEmitter<string>; // Send data when submitting the message form.
     @Output() onResize: EventEmitter<void>; // Emit when resizing the textarea.
 
+    @ViewChild('messageForm') formElement: ElementRef;
+
     protected sendOnEnter: boolean;
 
-    constructor(private utils: CoreUtilsProvider, private textUtils: CoreTextUtilsProvider, configProvider: CoreConfigProvider,
-            eventsProvider: CoreEventsProvider, sitesProvider: CoreSitesProvider, private appProvider: CoreAppProvider) {
+    constructor(protected utils: CoreUtilsProvider,
+            protected textUtils: CoreTextUtilsProvider,
+            configProvider: CoreConfigProvider,
+            protected eventsProvider: CoreEventsProvider,
+            protected sitesProvider: CoreSitesProvider,
+            protected appProvider: CoreAppProvider,
+            protected domUtils: CoreDomUtilsProvider) {
 
         this.onSubmit = new EventEmitter();
         this.onResize = new EventEmitter();
@@ -66,7 +75,7 @@ export class CoreSendMessageFormComponent implements OnInit {
     /**
      * Form submitted.
      *
-     * @param {Event} $event Mouse event.
+     * @param $event Mouse event.
      */
     submitForm($event: Event): void {
         $event.preventDefault();
@@ -80,6 +89,8 @@ export class CoreSendMessageFormComponent implements OnInit {
         }
 
         this.message = ''; // Reset the form.
+
+        this.domUtils.triggerFormSubmittedEvent(this.formElement, false, this.sitesProvider.getCurrentSiteId());
 
         value = this.textUtils.replaceNewLines(value, '<br>');
         this.onSubmit.emit(value);
@@ -95,10 +106,14 @@ export class CoreSendMessageFormComponent implements OnInit {
     /**
      * Enter key clicked.
      *
-     * @param {Event} e Event.
-     * @param {string} other The name of the other key that was clicked, undefined if no other key.
+     * @param e Event.
+     * @param other The name of the other key that was clicked, undefined if no other key.
      */
     enterClicked(e: Event, other: string): void {
+        if (this.sendDisabled) {
+            return;
+        }
+
         if (this.sendOnEnter && !other) {
             // Enter clicked, send the message.
             this.submitForm(e);

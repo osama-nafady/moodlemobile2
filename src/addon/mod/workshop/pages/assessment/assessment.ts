@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChild, ElementRef } from '@angular/core';
 import { IonicPage, NavParams, NavController } from 'ionic-angular';
 import { FormGroup, FormBuilder, Validators } from '@angular/forms';
 import { TranslateService } from '@ngx-translate/core';
@@ -38,6 +38,8 @@ import { AddonModWorkshopSyncProvider } from '../../providers/sync';
     templateUrl: 'assessment.html',
 })
 export class AddonModWorkshopAssessmentPage implements OnInit, OnDestroy {
+
+    @ViewChild('evaluateFormEl') formElement: ElementRef;
 
     assessment: any;
     submission: any;
@@ -116,25 +118,27 @@ export class AddonModWorkshopAssessmentPage implements OnInit, OnDestroy {
     /**
      * Check if we can leave the page or not.
      *
-     * @return {boolean|Promise<void>} Resolved if we can leave it, rejected if not.
+     * @return Resolved if we can leave it, rejected if not.
      */
-    ionViewCanLeave(): boolean | Promise<void> {
+    async ionViewCanLeave(): Promise<void> {
         if (this.forceLeave || !this.evaluating) {
-            return true;
+            return;
         }
 
         if (!this.hasEvaluationChanged()) {
-            return Promise.resolve();
+            return;
         }
 
         // Show confirmation if some data has been modified.
-        return this.domUtils.showConfirm(this.translate.instant('core.confirmcanceledit'));
+        await this.domUtils.showConfirm(this.translate.instant('core.confirmcanceledit'));
+
+        this.domUtils.triggerFormCancelledEvent(this.formElement, this.siteId);
     }
 
     /**
      * Fetch the assessment data.
      *
-     * @return {Promise<void>} Resolved when done.
+     * @return Resolved when done.
      */
     protected fetchAssessmentData(): Promise<void> {
         return this.workshopProvider.getWorkshopById(this.courseId, this.workshopId).then((workshopData) => {
@@ -247,7 +251,7 @@ export class AddonModWorkshopAssessmentPage implements OnInit, OnDestroy {
     /**
      * Check if data has changed.
      *
-     * @return {boolean} True if changed, false otherwise.
+     * @return True if changed, false otherwise.
      */
     protected hasEvaluationChanged(): boolean {
         if (!this.loaded || !this.evaluating) {
@@ -276,7 +280,7 @@ export class AddonModWorkshopAssessmentPage implements OnInit, OnDestroy {
     /**
      * Convenience function to refresh all the data.
      *
-     * @return {Promise<any>} Resolved when done.
+     * @return Resolved when done.
      */
     protected refreshAllData(): Promise<any> {
         const promises = [];
@@ -300,7 +304,7 @@ export class AddonModWorkshopAssessmentPage implements OnInit, OnDestroy {
     /**
      * Pull to refresh.
      *
-     * @param {any} refresher Refresher.
+     * @param refresher Refresher.
      */
     refreshAssessment(refresher: any): void {
         if (this.loaded) {
@@ -328,7 +332,7 @@ export class AddonModWorkshopAssessmentPage implements OnInit, OnDestroy {
     /**
      * Sends the evaluation to be saved on the server.
      *
-     * @return {Promise<any>} Resolved when done.
+     * @return Resolved when done.
      */
     protected sendEvaluation(): Promise<any> {
         const modal = this.domUtils.showModalLoading('core.sending', true),
@@ -340,7 +344,10 @@ export class AddonModWorkshopAssessmentPage implements OnInit, OnDestroy {
 
         // Try to send it to server.
         return this.workshopProvider.evaluateAssessment(this.workshopId, this.assessmentId, this.courseId, inputData.text,
-                inputData.weight, inputData.grade).then(() => {
+                inputData.weight, inputData.grade).then((result) => {
+
+            this.domUtils.triggerFormSubmittedEvent(this.formElement, !!result, this.siteId);
+
             const data = {
                 workshopId: this.workshopId,
                 assessmentId: this.assessmentId,

@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -39,7 +39,7 @@ export class CoreCoursesSearchPage {
     /**
      * Search a new text.
      *
-     * @param {string} text The text to search.
+     * @param text The text to search.
      */
     search(text: string): void {
         this.currentSearch = text;
@@ -53,9 +53,21 @@ export class CoreCoursesSearchPage {
     }
 
     /**
+     * Clear search box.
+     *
+     * @param e The event object.
+     */
+    clearSearch(e: Event): void {
+        this.currentSearch = '';
+        this.courses = undefined;
+        this.page = 0;
+        this.total = 0;
+    }
+
+    /**
      * Load more results.
      *
-     * @param {any} [infiniteComplete] Infinite scroll complete function. Only used from core-infinite-loading.
+     * @param infiniteComplete Infinite scroll complete function. Only used from core-infinite-loading.
      */
     loadMoreResults(infiniteComplete?: any): void {
         this.searchCourses().finally(() => {
@@ -66,7 +78,7 @@ export class CoreCoursesSearchPage {
     /**
      * Search courses or load the next page of current search.
      *
-     * @return {Promise<any>} Promise resolved when done.
+     * @return Promise resolved when done.
      */
     protected searchCourses(): Promise<any> {
         this.loadMoreError = false;

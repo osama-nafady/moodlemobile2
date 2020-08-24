@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Directive, ElementRef, Input, Output, EventEmitter, OnChanges, SimpleChange, Optional } from '@angular/core';
+import {
+    Directive, ElementRef, Input, Output, EventEmitter, OnChanges, SimpleChange, Optional, ViewContainerRef
+} from '@angular/core';
 import { Platform, NavController, Content } from 'ionic-angular';
 import { TranslateService } from '@ngx-translate/core';
 import { CoreAppProvider } from '@providers/app';
@@ -30,14 +32,19 @@ import { CoreLinkDirective } from '../directives/link';
 import { CoreExternalContentDirective } from '../directives/external-content';
 import { CoreContentLinksHelperProvider } from '@core/contentlinks/providers/helper';
 import { CoreSplitViewComponent } from '@components/split-view/split-view';
+import { CoreFilterProvider, CoreFilterFilter, CoreFilterFormatTextOptions } from '@core/filter/providers/filter';
+import { CoreFilterHelperProvider } from '@core/filter/providers/helper';
+import { CoreFilterDelegate } from '@core/filter/providers/delegate';
+import { CoreCustomURLSchemesProvider } from '@providers/urlschemes';
 
 /**
  * Directive to format text rendered. It renders the HTML and treats all links and media, using CoreLinkDirective
- * and CoreExternalContentDirective.
+ * and CoreExternalContentDirective. It also applies filters if needed.
+ *
+ * Please use this directive if your text needs to be filtered or it can contain links or media (images, audio, video).
  *
  * Example usage:
  * <core-format-text [text]="myText" [component]="component" [componentId]="componentId"></core-format-text>
- *
  */
 @Directive({
     selector: 'core-format-text'
@@ -56,19 +63,41 @@ export class CoreFormatTextDirective implements OnChanges {
     @Input() fullOnClick?: boolean | string; // Whether it should open a new page with the full contents on click.
     @Input() fullTitle?: string; // Title to use in full view. Defaults to "Description".
     @Input() highlight?: string; // Text to highlight.
+    @Input() filter?: boolean | string; // Whether to filter the text. If not defined, true if contextLevel and instanceId are set.
+    @Input() contextLevel?: string; // The context level of the text.
+    @Input() contextInstanceId?: number; // The instance ID related to the context.
+    @Input() courseId?: number; // Course ID the text belongs to. It can be used to improve performance with filters.
+    @Input() wsNotFiltered?: boolean | string; // If true it means the WS didn't filter the text for some reason.
     @Output() afterRender?: EventEmitter<any>; // Called when the data is rendered.
 
     protected element: HTMLElement;
     protected showMoreDisplayed: boolean;
     protected loadingChangedListener;
 
-    constructor(element: ElementRef, private sitesProvider: CoreSitesProvider, private domUtils: CoreDomUtilsProvider,
-            private textUtils: CoreTextUtilsProvider, private translate: TranslateService, private platform: Platform,
-            private utils: CoreUtilsProvider, private urlUtils: CoreUrlUtilsProvider, private loggerProvider: CoreLoggerProvider,
-            private filepoolProvider: CoreFilepoolProvider, private appProvider: CoreAppProvider,
-            private contentLinksHelper: CoreContentLinksHelperProvider, @Optional() private navCtrl: NavController,
-            @Optional() private content: Content, @Optional() private svComponent: CoreSplitViewComponent,
-            private iframeUtils: CoreIframeUtilsProvider, private eventsProvider: CoreEventsProvider) {
+    constructor(element: ElementRef,
+            protected sitesProvider: CoreSitesProvider,
+            protected domUtils: CoreDomUtilsProvider,
+            protected textUtils: CoreTextUtilsProvider,
+            protected translate: TranslateService,
+            protected platform: Platform,
+            protected utils: CoreUtilsProvider,
+            protected urlUtils: CoreUrlUtilsProvider,
+            protected loggerProvider: CoreLoggerProvider,
+            protected filepoolProvider: CoreFilepoolProvider,
+            protected appProvider: CoreAppProvider,
+            protected contentLinksHelper: CoreContentLinksHelperProvider,
+            @Optional() protected navCtrl: NavController,
+            @Optional() protected content: Content, @Optional()
+            @Optional() protected svComponent: CoreSplitViewComponent,
+            protected iframeUtils: CoreIframeUtilsProvider,
+            protected eventsProvider: CoreEventsProvider,
+            protected filterProvider: CoreFilterProvider,
+            protected filterHelper: CoreFilterHelperProvider,
+            protected filterDelegate: CoreFilterDelegate,
+            protected viewContainerRef: ViewContainerRef,
+            protected urlSchemesProvider: CoreCustomURLSchemesProvider
+            ) {
+
         this.element = element.nativeElement;
         this.element.classList.add('opacity-hide'); // Hide contents until they're treated.
         this.afterRender = new EventEmitter();
@@ -80,7 +109,7 @@ export class CoreFormatTextDirective implements OnChanges {
      * Detect changes on input properties.
      */
     ngOnChanges(changes: { [name: string]: SimpleChange }): void {
-        if (changes.text) {
+        if (changes.text || changes.filter || changes.contextLevel || changes.contextInstanceId) {
             this.hideShowMore();
             this.formatAndRenderContents();
         }
@@ -89,8 +118,8 @@ export class CoreFormatTextDirective implements OnChanges {
     /**
      * Apply CoreExternalContentDirective to a certain element.
      *
-     * @param {HTMLElement} element Element to add the attributes to.
-     * @return {CoreExternalContentDirective} External content instance.
+     * @param element Element to add the attributes to.
+     * @return External content instance.
      */
     protected addExternalContent(element: HTMLElement): CoreExternalContentDirective {
         // Angular 2 doesn't let adding directives dynamically. Create the CoreExternalContentDirective manually.
@@ -113,7 +142,7 @@ export class CoreFormatTextDirective implements OnChanges {
     /**
      * Add class to adapt media to a certain element.
      *
-     * @param {HTMLElement} element Element to add the class to.
+     * @param element Element to add the class to.
      */
     protected addMediaAdaptClass(element: HTMLElement): void {
         element.classList.add('core-media-adapt-width');
@@ -122,7 +151,7 @@ export class CoreFormatTextDirective implements OnChanges {
     /**
      * Wrap an image with a container to adapt its width.
      *
-     * @param {HTMLElement} img Image to adapt.
+     * @param img Image to adapt.
      */
     protected adaptImage(img: HTMLElement): void {
         // Element to wrap the image.
@@ -195,7 +224,7 @@ export class CoreFormatTextDirective implements OnChanges {
             anchor.addEventListener('click', (e: Event) => {
                 e.preventDefault();
                 e.stopPropagation();
-                this.domUtils.viewImage(imgSrc, img.getAttribute('alt'), this.component, this.componentId);
+                this.domUtils.viewImage(imgSrc, img.getAttribute('alt'), this.component, this.componentId, true);
             });
 
             img.parentNode.appendChild(anchor);
@@ -251,7 +280,7 @@ export class CoreFormatTextDirective implements OnChanges {
     /**
      * Listener to call when the element is clicked.
      *
-     * @param {MouseEvent} e Click event.
+     * @param e Click event.
      */
     protected elementClicked(e: MouseEvent): void {
         if (e.defaultPrevented) {
@@ -276,8 +305,16 @@ export class CoreFormatTextDirective implements OnChanges {
             return;
         } else {
             // Open a new state with the contents.
-            this.textUtils.expandText(this.fullTitle || this.translate.instant('core.description'), this.text,
-                this.component, this.componentId);
+            const filter = typeof this.filter != 'undefined' ? this.utils.isTrueOrOne(this.filter) : undefined;
+
+            this.textUtils.viewText(this.fullTitle || this.translate.instant('core.description'), this.text, {
+                component: this.component,
+                componentId: this.componentId,
+                filter: filter,
+                contextLevel: this.contextLevel,
+                instanceId: this.contextInstanceId,
+                courseId: this.courseId,
+            });
         }
     }
 
@@ -312,15 +349,15 @@ export class CoreFormatTextDirective implements OnChanges {
 
         this.text = this.text ? this.text.trim() : '';
 
-        this.formatContents().then((div: HTMLElement) => {
+        this.formatContents().then((result) => {
             // Disable media adapt to correctly calculate the height.
             this.element.classList.add('core-disable-media-adapt');
 
             this.element.innerHTML = ''; // Remove current contents.
-            if (this.maxHeight && div.innerHTML != '') {
+            if (this.maxHeight && result.div.innerHTML != '') {
 
                 // Move the children to the current element to be able to calculate the height.
-                this.domUtils.moveChildren(div, this.element);
+                this.domUtils.moveChildren(result.div, this.element);
 
                 // Calculate the height now.
                 this.calculateHeight();
@@ -338,10 +375,16 @@ export class CoreFormatTextDirective implements OnChanges {
                     });
                 }
             } else {
-                this.domUtils.moveChildren(div, this.element);
+                this.domUtils.moveChildren(result.div, this.element);
 
                 // Add magnifying glasses to images.
                 this.addMagnifyingGlasses();
+            }
+
+            if (result.options.filter) {
+                // Let filters hnadle HTML. We do it here because we don't want them to block the render of the text.
+                this.filterDelegate.handleHtml(this.element, result.filters, this.viewContainerRef, result.options, [],
+                        this.component, this.componentId, result.siteId);
             }
 
             this.element.classList.remove('core-disable-media-adapt');
@@ -352,10 +395,17 @@ export class CoreFormatTextDirective implements OnChanges {
     /**
      * Apply formatText and set sub-directives.
      *
-     * @return {Promise<HTMLElement>} Promise resolved with a div element containing the code.
+     * @return Promise resolved with a div element containing the code.
      */
-    protected formatContents(): Promise<HTMLElement> {
+    protected formatContents(): Promise<{div: HTMLElement, filters: CoreFilterFilter[], options: CoreFilterFormatTextOptions,
+            siteId: string}> {
 
+        const result = {
+            div: <HTMLElement> null,
+            filters: <CoreFilterFilter[]> [],
+            options: <CoreFilterFormatTextOptions> {},
+            siteId: this.siteId
+        };
         let site: CoreSite;
 
         // Retrieve the site since it might be needed later.
@@ -364,9 +414,37 @@ export class CoreFormatTextDirective implements OnChanges {
         }).then((siteInstance: CoreSite) => {
             site = siteInstance;
 
-            // Apply format text function.
-            return this.textUtils.formatText(this.text, this.utils.isTrueOrOne(this.clean),
-                this.utils.isTrueOrOne(this.singleLine), undefined, this.highlight);
+            if (site) {
+                result.siteId = site.getId();
+            }
+
+            if (this.contextLevel == 'course' && this.contextInstanceId <= 0) {
+                this.contextInstanceId = site.getSiteHomeId();
+            }
+
+            const filter = typeof this.filter == 'undefined' ?
+                    !!(this.contextLevel && typeof this.contextInstanceId != 'undefined') : this.utils.isTrueOrOne(this.filter);
+
+            result.options = {
+                clean: this.utils.isTrueOrOne(this.clean),
+                singleLine: this.utils.isTrueOrOne(this.singleLine),
+                highlight: this.highlight,
+                courseId: this.courseId,
+                wsNotFiltered: this.utils.isTrueOrOne(this.wsNotFiltered)
+            };
+
+            if (filter) {
+                return this.filterHelper.getFiltersAndFormatText(this.text, this.contextLevel, this.contextInstanceId,
+                        result.options, result.siteId).then((res) => {
+
+                    result.filters = res.filters;
+
+                    return res.text;
+                });
+            } else {
+                return this.filterProvider.formatText(this.text, result.options, [], result.siteId);
+            }
+
         }).then((formatted) => {
             const div = document.createElement('div'),
                 canTreatVimeo = site && site.isVersionGreaterEqualThan(['3.3.4', '3.4']),
@@ -397,7 +475,7 @@ export class CoreFormatTextDirective implements OnChanges {
             anchors.forEach((anchor) => {
                 // Angular 2 doesn't let adding directives dynamically. Create the CoreLinkDirective manually.
                 const linkDir = new CoreLinkDirective(anchor, this.domUtils, this.utils, this.sitesProvider, this.urlUtils,
-                    this.contentLinksHelper, this.navCtrl, this.content, this.svComponent, this.textUtils);
+                    this.contentLinksHelper, this.navCtrl, this.content, this.svComponent, this.textUtils, this.urlSchemesProvider);
                 linkDir.capture = true;
                 linkDir.ngOnInit();
 
@@ -426,7 +504,6 @@ export class CoreFormatTextDirective implements OnChanges {
             });
 
             videos.forEach((video) => {
-                this.treatVideoFilters(video, navCtrl);
                 this.treatMedia(video);
             });
 
@@ -489,7 +566,9 @@ export class CoreFormatTextDirective implements OnChanges {
             return promise.catch(() => {
                 // Ignore errors. So content gets always shown.
             }).then(() => {
-                return div;
+                result.div = div;
+
+                return result;
             });
         });
     }
@@ -497,8 +576,8 @@ export class CoreFormatTextDirective implements OnChanges {
     /**
      * Returns the element width in pixels.
      *
-     * @param {HTMLElement} element Element to get width from.
-     * @return {number} The width of the element in pixels. When 0 is returned it means the element is not visible.
+     * @param element Element to get width from.
+     * @return The width of the element in pixels. When 0 is returned it means the element is not visible.
      */
     protected getElementWidth(element: HTMLElement): number {
         let width = this.domUtils.getElementWidth(element);
@@ -526,8 +605,8 @@ export class CoreFormatTextDirective implements OnChanges {
     /**
      * Returns the element height in pixels.
      *
-     * @param {HTMLElement} elementAng Element to get height from.
-     * @return {number} The height of the element in pixels. When 0 is returned it means the element is not visible.
+     * @param elementAng Element to get height from.
+     * @return The height of the element in pixels. When 0 is returned it means the element is not visible.
      */
     protected getElementHeight(element: HTMLElement): number {
         return this.domUtils.getElementHeight(element) || 0;
@@ -551,43 +630,9 @@ export class CoreFormatTextDirective implements OnChanges {
     }
 
     /**
-     * Treat video filters. Currently only treating youtube video using video JS.
-     *
-     * @param {HTMLElement} el Video element.
-     * @param {NavController} navCtrl NavController to use.
-     */
-    protected treatVideoFilters(video: HTMLElement, navCtrl: NavController): void {
-        // Treat Video JS Youtube video links and translate them to iframes.
-        if (!video.classList.contains('video-js')) {
-            return;
-        }
-
-        const data = this.textUtils.parseJSON(video.getAttribute('data-setup') || video.getAttribute('data-setup-lazy') || '{}'),
-            youtubeData = data.techOrder && data.techOrder[0] && data.techOrder[0] == 'youtube' &&
-                    this.parseYoutubeUrl(data.sources && data.sources[0] && data.sources[0].src);
-
-        if (!youtubeData || !youtubeData.videoId) {
-            return;
-        }
-
-        const iframe = document.createElement('iframe');
-        iframe.id = video.id;
-        iframe.src = 'https://www.youtube.com/embed/' + youtubeData.videoId; // Don't apply other params to align with Moodle web.
-        iframe.setAttribute('frameborder', '0');
-        iframe.setAttribute('allowfullscreen', '1');
-        iframe.width = '100%';
-        iframe.height = '300';
-
-        // Replace video tag by the iframe.
-        video.parentNode.replaceChild(iframe, video);
-
-        this.iframeUtils.treatFrame(iframe, false, navCtrl);
-    }
-
-    /**
      * Add media adapt class and apply CoreExternalContentDirective to the media element and its sources and tracks.
      *
-     * @param {HTMLElement} element Video or audio to treat.
+     * @param element Video or audio to treat.
      */
     protected treatMedia(element: HTMLElement): void {
         this.addMediaAdaptClass(element);
@@ -615,10 +660,10 @@ export class CoreFormatTextDirective implements OnChanges {
     /**
      * Add media adapt class and treat the iframe source.
      *
-     * @param {HTMLIFrameElement} iframe Iframe to treat.
-     * @param {CoreSite} site Site instance.
-     * @param {boolean} canTreatVimeo Whether Vimeo videos can be treated in the site.
-     * @param {NavController} navCtrl NavController to use.
+     * @param iframe Iframe to treat.
+     * @param site Site instance.
+     * @param canTreatVimeo Whether Vimeo videos can be treated in the site.
+     * @param navCtrl NavController to use.
      */
     protected treatIframe(iframe: HTMLIFrameElement, site: CoreSite, canTreatVimeo: boolean, navCtrl: NavController): void {
         const src = iframe.src,
@@ -666,7 +711,7 @@ export class CoreFormatTextDirective implements OnChanges {
                 }
 
                 // Width and height parameters are required in 3.6 and older sites.
-                if (!site.isVersionGreaterEqualThan('3.7')) {
+                if (site && !site.isVersionGreaterEqualThan('3.7')) {
                     newUrl += '&width=' + width + '&height=' + height;
                 }
                 iframe.src = newUrl;
@@ -693,55 +738,5 @@ export class CoreFormatTextDirective implements OnChanges {
         }
 
         this.iframeUtils.treatFrame(iframe, false, navCtrl);
-    }
-
-    /**
-     * Parse a YouTube URL.
-     * Based on Youtube.parseUrl from Moodle media/player/videojs/amd/src/Youtube-lazy.js
-     *
-     * @param {string} url URL of the video.
-     */
-    protected parseYoutubeUrl(url: string): {videoId: string, listId?: string, start?: number} {
-        const result = {
-            videoId: null,
-            listId: null,
-            start: null
-        };
-
-        if (!url) {
-            return result;
-        }
-
-        url = this.textUtils.decodeHTML(url);
-
-        // Get the video ID.
-        let match = url.match(/^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/);
-
-        if (match && match[2].length === 11) {
-            result.videoId = match[2];
-        }
-
-        // Now get the playlist (if any).
-        match = url.match(/[?&]list=([^#\&\?]+)/);
-
-        if (match && match[1]) {
-            result.listId = match[1];
-        }
-
-        // Now get the start time (if any).
-        match = url.match(/[?&]start=(\d+)/);
-
-        if (match && match[1]) {
-            result.start = parseInt(match[1], 10);
-        } else {
-            // No start param, but it could have a time param.
-            match = url.match(/[?&]t=(\d+h)?(\d+m)?(\d+s)?/);
-            if (match) {
-                result.start = (match[1] ? parseInt(match[1], 10) * 3600 : 0) + (match[2] ? parseInt(match[2], 10) * 60 : 0) +
-                        (match[3] ? parseInt(match[3], 10) : 0);
-            }
-        }
-
-        return result;
     }
 }

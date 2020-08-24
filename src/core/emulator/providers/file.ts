@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -35,9 +35,9 @@ export class FileMock extends File {
     /**
      * Check if a directory exists in a certain path, directory.
      *
-     * @param {string} path Base FileSystem.
-     * @param {string} dir Name of directory to check
-     * @returns {Promise<boolean>} Returns a Promise that resolves to true if the directory exists or rejects with an error.
+     * @param path Base FileSystem.
+     * @param dir Name of directory to check
+     * @return Returns a Promise that resolves to true if the directory exists or rejects with an error.
      */
     checkDir(path: string, dir: string): Promise<boolean> {
         const fullPath = this.textUtils.concatenatePaths(path, dir);
@@ -50,9 +50,9 @@ export class FileMock extends File {
     /**
      * Check if a file exists in a certain path, directory.
      *
-     * @param {string} path Base FileSystem.
-     * @param {string} file Name of file to check.
-     * @returns {Promise<boolean>} Returns a Promise that resolves with a boolean or rejects with an error.
+     * @param path Base FileSystem.
+     * @param file Name of file to check.
+     * @return Returns a Promise that resolves with a boolean or rejects with an error.
      */
     checkFile(path: string, file: string): Promise<boolean> {
         return this.resolveLocalFilesystemUrl(this.textUtils.concatenatePaths(path, file)).then((fse) => {
@@ -70,10 +70,10 @@ export class FileMock extends File {
     /**
      * Copy a file or directory.
      *
-     * @param {Entry} srce The Entry to copy.
-     * @param {DirectoryEntry} destDir The directory where to put the copy.
-     * @param {string} newName New name of the file/dir.
-     * @returns {Promise<Entry>} Returns a Promise that resolves to the new Entry object or rejects with an error.
+     * @param srce The Entry to copy.
+     * @param destDir The directory where to put the copy.
+     * @param newName New name of the file/dir.
+     * @return Returns a Promise that resolves to the new Entry object or rejects with an error.
      */
     private copyMock(srce: Entry, destDir: DirectoryEntry, newName: string): Promise<Entry> {
         return new Promise<Entry>((resolve, reject): void => {
@@ -91,41 +91,46 @@ export class FileMock extends File {
     /**
      * Copy a directory in various methods. If destination directory exists, will fail to copy.
      *
-     * @param {string} path Base FileSystem. Please refer to the iOS and Android filesystems above.
-     * @param {string} dirName Name of directory to copy.
-     * @param {string} newPath Base FileSystem of new location.
-     * @param {string} newDirName New name of directory to copy to (leave blank to remain the same).
-     * @returns {Promise<Entry>} Returns a Promise that resolves to the new Entry object or rejects with an error.
+     * @param path Base FileSystem. Please refer to the iOS and Android filesystems above.
+     * @param dirName Name of directory to copy.
+     * @param newPath Base FileSystem of new location.
+     * @param newDirName New name of directory to copy to (leave blank to remain the same).
+     * @return Returns a Promise that resolves to the new Entry object or rejects with an error.
      */
     copyDir(path: string, dirName: string, newPath: string, newDirName: string): Promise<Entry> {
-        return this.resolveDirectoryUrl(path).then((fse) => {
-            return this.getDirectory(fse, dirName, { create: false });
-        }).then((srcde) => {
-            return this.resolveDirectoryUrl(newPath).then((deste) => {
-                return this.copyMock(srcde, deste, newDirName);
-            });
-        });
+        return this.copyFileOrDir(path, dirName, newPath, newDirName);
     }
 
     /**
      * Copy a file in various methods. If file exists, will fail to copy.
      *
-     * @param {string} path Base FileSystem. Please refer to the iOS and Android filesystems above
-     * @param {string} fileName Name of file to copy
-     * @param {string} newPath Base FileSystem of new location
-     * @param {string} newFileName New name of file to copy to (leave blank to remain the same)
-     * @returns {Promise<Entry>} Returns a Promise that resolves to an Entry or rejects with an error.
+     * @param path Base FileSystem. Please refer to the iOS and Android filesystems above
+     * @param fileName Name of file to copy
+     * @param newPath Base FileSystem of new location
+     * @param newFileName New name of file to copy to (leave blank to remain the same)
+     * @return Returns a Promise that resolves to an Entry or rejects with an error.
      */
     copyFile(path: string, fileName: string, newPath: string, newFileName: string): Promise<Entry> {
-        newFileName = newFileName || fileName;
+        return this.copyFileOrDir(path, fileName, newPath, newFileName || fileName);
+    }
 
-        return this.resolveDirectoryUrl(path).then((fse) => {
-            return this.getFile(fse, fileName, { create: false });
-        }).then((srcfe) => {
-            return this.resolveDirectoryUrl(newPath).then((deste) => {
-                return this.copyMock(srcfe, deste, newFileName);
-            });
-        });
+    /**
+     * Copy a file or dir to a given path.
+     *
+     * @param sourcePath Path of the file/dir to copy.
+     * @param sourceName Name of file/dir to copy
+     * @param destPath Path where to copy.
+     * @param destName New name of file/dir.
+     * @return Returns a Promise that resolves to the new Entry or rejects with an error.
+     */
+    async copyFileOrDir(sourcePath: string, sourceName: string, destPath: string, destName: string): Promise<Entry> {
+        const destFixed = this.fixPathAndName(destPath, destName);
+
+        const source = await this.resolveLocalFilesystemUrl(this.textUtils.concatenatePaths(sourcePath, sourceName));
+
+        const destParentDir = await this.resolveDirectoryUrl(destFixed.path);
+
+        return this.copyMock(source, destParentDir, destFixed.name);
     }
 
     /**
@@ -133,10 +138,10 @@ export class FileMock extends File {
      * The replace boolean value determines whether to replace an existing directory with the same name.
      * If an existing directory exists and the replace value is false, the promise will fail and return an error.
      *
-     * @param {string} path Base FileSystem.
-     * @param {string} dirName Name of directory to create
-     * @param {boolean} replace If true, replaces file with same name. If false returns error
-     * @returns {Promise<DirectoryEntry>} Returns a Promise that resolves with a DirectoryEntry or rejects with an error.
+     * @param path Base FileSystem.
+     * @param dirName Name of directory to create
+     * @param replace If true, replaces file with same name. If false returns error
+     * @return Returns a Promise that resolves with a DirectoryEntry or rejects with an error.
      */
     createDir(path: string, dirName: string, replace: boolean): Promise<DirectoryEntry> {
         const options: any = {
@@ -157,10 +162,10 @@ export class FileMock extends File {
      * The replace boolean value determines whether to replace an existing file with the same name.
      * If an existing file exists and the replace value is false, the promise will fail and return an error.
      *
-     * @param {string} path  Base FileSystem.
-     * @param {string} fileName Name of file to create.
-     * @param {boolean} replace If true, replaces file with same name. If false returns error.
-     * @returns {Promise<FileEntry>} Returns a Promise that resolves to a FileEntry or rejects with an error.
+     * @param path Base FileSystem.
+     * @param fileName Name of file to create.
+     * @param replace If true, replaces file with same name. If false returns error.
+     * @return Returns a Promise that resolves to a FileEntry or rejects with an error.
      */
     createFile(path: string, fileName: string, replace: boolean): Promise<FileEntry> {
         const options: any = {
@@ -179,8 +184,8 @@ export class FileMock extends File {
     /**
      * Create a file writer for a certain file.
      *
-     * @param {FileEntry} fe File entry object.
-     * @returns {Promise<FileWriter>} Promise resolved with the FileWriter.
+     * @param fe File entry object.
+     * @return Promise resolved with the FileWriter.
      */
     private createWriterMock(fe: FileEntry): Promise<FileWriter> {
         return new Promise<FileWriter>((resolve, reject): void => {
@@ -197,7 +202,7 @@ export class FileMock extends File {
      * Emulate Cordova file plugin using NodeJS functions. This is only for NodeJS environments,
      * browser works with the default resolveLocalFileSystemURL.
      *
-     * @param {any} fs Node module 'fs'.
+     * @param fs Node module 'fs'.
      */
     protected emulateCordovaFileForDesktop(fs: any): void {
         if (!this.appProvider.isDesktop()) {
@@ -224,7 +229,7 @@ export class FileMock extends File {
     /**
      * Fill the message for an error.
      *
-     * @param {any} err Error.
+     * @param err Error.
      */
     private fillErrorMessageMock(err: any): void {
         try {
@@ -237,10 +242,9 @@ export class FileMock extends File {
     /**
      * Get a directory.
      *
-     * @param directoryEntry {DirectoryEntry} Directory entry, obtained by resolveDirectoryUrl method
-     * @param directoryName {string} Directory name
-     * @param flags {Flags} Options
-     * @returns {Promise<DirectoryEntry>}
+     * @param directoryEntry Directory entry, obtained by resolveDirectoryUrl method
+     * @param directoryName Directory name
+     * @param flags Options
      */
     getDirectory(directoryEntry: DirectoryEntry, directoryName: string, flags: Flags): Promise<DirectoryEntry> {
         return new Promise<DirectoryEntry>((resolve, reject): void => {
@@ -262,10 +266,9 @@ export class FileMock extends File {
 
     /**
      * Get a file
-     * @param directoryEntry {DirectoryEntry} Directory entry, obtained by resolveDirectoryUrl method
-     * @param fileName {string} File name
-     * @param flags {Flags} Options
-     * @returns {Promise<FileEntry>}
+     * @param directoryEntry Directory entry, obtained by resolveDirectoryUrl method
+     * @param fileName File name
+     * @param flags Options
      */
     getFile(directoryEntry: DirectoryEntry, fileName: string, flags: Flags): Promise<FileEntry> {
         return new Promise<FileEntry>((resolve, reject): void => {
@@ -286,7 +289,7 @@ export class FileMock extends File {
     /**
      * Get free disk space.
      *
-     * @return {Promise<number>} Promise resolved with the free space.
+     * @return Promise resolved with the free space.
      */
     getFreeDiskSpace(): Promise<number> {
         // FRequest a file system instance with a minimum size until we get an error.
@@ -329,9 +332,9 @@ export class FileMock extends File {
     /**
      * List files and directory from a given path.
      *
-     * @param {string} path Base FileSystem. Please refer to the iOS and Android filesystems above
-     * @param {string} dirName Name of directory
-     * @returns {Promise<Entry[]>} Returns a Promise that resolves to an array of Entry objects or rejects with an error.
+     * @param path Base FileSystem. Please refer to the iOS and Android filesystems above
+     * @param dirName Name of directory
+     * @return Returns a Promise that resolves to an array of Entry objects or rejects with an error.
      */
     listDir(path: string, dirName: string): Promise<Entry[]> {
         return this.resolveDirectoryUrl(path).then((fse) => {
@@ -346,7 +349,7 @@ export class FileMock extends File {
     /**
      * Loads an initialize the API for browser and desktop.
      *
-     * @return {Promise<any>} Promise resolved when loaded.
+     * @return Promise resolved when loaded.
      */
     load(): Promise<any> {
         return new Promise((resolve, reject): void => {
@@ -404,10 +407,10 @@ export class FileMock extends File {
     /**
      * Move a file or directory.
      *
-     * @param {Entry} srce The Entry to copy.
-     * @param {DirectoryEntry} destDir The directory where to move the file/dir.
-     * @param {string} newName New name of the file/dir.
-     * @returns {Promise<Entry>} Returns a Promise that resolves to the new Entry object or rejects with an error.
+     * @param srce The Entry to copy.
+     * @param destDir The directory where to move the file/dir.
+     * @param newName New name of the file/dir.
+     * @return Returns a Promise that resolves to the new Entry object or rejects with an error.
      */
     private moveMock(srce: Entry, destDir: DirectoryEntry, newName: string): Promise<Entry> {
         return new Promise<Entry>((resolve, reject): void => {
@@ -425,50 +428,72 @@ export class FileMock extends File {
     /**
      * Move a directory to a given path.
      *
-     * @param {string} path The source path to the directory.
-     * @param {string} dirName The source directory name.
-     * @param {string} newPath The destionation path to the directory.
-     * @param {string} newDirName The destination directory name.
-     * @returns {Promise<DirectoryEntry|Entry>} Returns a Promise that resolves to the new DirectoryEntry object or rejects with
-     *                                          an error.
+     * @param path The source path to the directory.
+     * @param dirName The source directory name.
+     * @param newPath The destionation path to the directory.
+     * @param newDirName The destination directory name.
+     * @return Returns a Promise that resolves to the new DirectoryEntry object or rejects with
+     *         an error.
      */
     moveDir(path: string, dirName: string, newPath: string, newDirName: string): Promise<DirectoryEntry | Entry> {
-        return this.resolveDirectoryUrl(path).then((fse) => {
-            return this.getDirectory(fse, dirName, { create: false });
-        }).then((srcde) => {
-            return this.resolveDirectoryUrl(newPath).then((deste) => {
-                return this.moveMock(srcde, deste, newDirName);
-            });
-        });
+        return this.moveFileOrDir(path, dirName, newPath, newDirName);
     }
 
     /**
      * Move a file to a given path.
      *
-     * @param {string} path Base FileSystem. Please refer to the iOS and Android filesystems above
-     * @param {string} fileName Name of file to move
-     * @param {string} newPath Base FileSystem of new location
-     * @param {string} newFileName New name of file to move to (leave blank to remain the same)
-     * @returns {Promise<Entry>} Returns a Promise that resolves to the new Entry or rejects with an error.
+     * @param path Base FileSystem. Please refer to the iOS and Android filesystems above
+     * @param fileName Name of file to move
+     * @param newPath Base FileSystem of new location
+     * @param newFileName New name of file to move to (leave blank to remain the same)
+     * @return Returns a Promise that resolves to the new Entry or rejects with an error.
      */
     moveFile(path: string, fileName: string, newPath: string, newFileName: string): Promise<Entry> {
-        newFileName = newFileName || fileName;
+        return this.moveFileOrDir(path, fileName, newPath, newFileName || fileName);
+    }
 
-        return this.resolveDirectoryUrl(path).then((fse) => {
-            return this.getFile(fse, fileName, { create: false });
-        }).then((srcfe) => {
-            return this.resolveDirectoryUrl(newPath).then((deste) => {
-                return this.moveMock(srcfe, deste, newFileName);
-            });
-        });
+    /**
+     * Move a file or dir to a given path.
+     *
+     * @param sourcePath Path of the file/dir to copy.
+     * @param sourceName Name of file/dir to copy
+     * @param destPath Path where to copy.
+     * @param destName New name of file/dir.
+     * @return Returns a Promise that resolves to the new Entry or rejects with an error.
+     */
+    async moveFileOrDir(sourcePath: string, sourceName: string, destPath: string, destName: string): Promise<Entry> {
+        const destFixed = this.fixPathAndName(destPath, destName);
+
+        const source = await this.resolveLocalFilesystemUrl(this.textUtils.concatenatePaths(sourcePath, sourceName));
+
+        const destParentDir = await this.resolveDirectoryUrl(destFixed.path);
+
+        return this.moveMock(source, destParentDir, destFixed.name);
+    }
+
+    /**
+     * Fix a path and name, making sure the name doesn't contain any folder. If it does, the folder will be moved to the path.
+     *
+     * @param path Path to fix.
+     * @param name Name to fix.
+     * @return Fixed values.
+     */
+    protected fixPathAndName(path: string, name: string): {path: string, name: string} {
+
+        const fullPath = this.textUtils.concatenatePaths(path, name);
+
+        return {
+            path: fullPath.substring(0, fullPath.lastIndexOf('/')),
+            name: fullPath.substr(fullPath.lastIndexOf('/') + 1),
+        };
     }
 
     /**
      * Read file and return data as an ArrayBuffer.
-     * @param {string} path Base FileSystem.
-     * @param {string} file Name of file, relative to path.
-     * @returns {Promise<ArrayBuffer>} Returns a Promise that resolves with the contents of the file as ArrayBuffer or rejects
-     *                                 with an error.
+     * @param path Base FileSystem.
+     * @param file Name of file, relative to path.
+     * @return Returns a Promise that resolves with the contents of the file as ArrayBuffer or rejects
+     *         with an error.
      */
     readAsArrayBuffer(path: string, file: string): Promise<ArrayBuffer> {
         return this.readFileMock<ArrayBuffer>(path, file, 'ArrayBuffer');
@@ -476,9 +501,9 @@ export class FileMock extends File {
 
     /**
      * Read file and return data as a binary data.
-     * @param {string} path Base FileSystem.
-     * @param {string} file Name of file, relative to path.
-     * @returns {Promise<string>} Returns a Promise that resolves with the contents of the file as string rejects with an error.
+     * @param path Base FileSystem.
+     * @param file Name of file, relative to path.
+     * @return Returns a Promise that resolves with the contents of the file as string rejects with an error.
      */
     readAsBinaryString(path: string, file: string): Promise<string> {
         return this.readFileMock<string>(path, file, 'BinaryString');
@@ -488,10 +513,10 @@ export class FileMock extends File {
      * Read file and return data as a base64 encoded data url.
      * A data url is of the form:
      *      data: [<mediatype>][;base64],<data>
-     * @param {string} path Base FileSystem.
-     * @param {string} file Name of file, relative to path.
-     * @returns {Promise<string>} Returns a Promise that resolves with the contents of the file as data URL or rejects
-     *                            with an error.
+     * @param path Base FileSystem.
+     * @param file Name of file, relative to path.
+     * @return Returns a Promise that resolves with the contents of the file as data URL or rejects
+     *         with an error.
      */
     readAsDataURL(path: string, file: string): Promise<string> {
         return this.readFileMock<string>(path, file, 'DataURL');
@@ -500,9 +525,9 @@ export class FileMock extends File {
     /**
      * Read the contents of a file as text.
      *
-     * @param {string} path Base FileSystem.
-     * @param {string} file Name of file, relative to path.
-     * @returns {Promise<string>} Returns a Promise that resolves with the contents of the file as string or rejects with an error.
+     * @param path Base FileSystem.
+     * @param file Name of file, relative to path.
+     * @return Returns a Promise that resolves with the contents of the file as string or rejects with an error.
      */
     readAsText(path: string, file: string): Promise<string> {
         return this.readFileMock<string>(path, file, 'Text');
@@ -511,8 +536,8 @@ export class FileMock extends File {
     /**
      * Read all the files and directories inside a directory.
      *
-     * @param {DirectoryReader} dr The directory reader.
-     * @return {Promise<Entry[]>} Promise resolved with the list of files/dirs.
+     * @param dr The directory reader.
+     * @return Promise resolved with the list of files/dirs.
      */
     private readEntriesMock(dr: DirectoryReader): Promise<Entry[]> {
         return new Promise<Entry[]>((resolve, reject): void => {
@@ -528,10 +553,10 @@ export class FileMock extends File {
     /**
      * Read the contents of a file.
      *
-     * @param {string} path Base FileSystem.
-     * @param {string} file Name of file, relative to path.
-     * @param {string} readAs Format to read as.
-     * @returns {Promise<string>} Returns a Promise that resolves with the contents of the file or rejects with an error.
+     * @param path Base FileSystem.
+     * @param file Name of file, relative to path.
+     * @param readAs Format to read as.
+     * @return Returns a Promise that resolves with the contents of the file or rejects with an error.
      */
     private readFileMock<T>(path: string, file: string, readAs: 'ArrayBuffer' | 'BinaryString' | 'DataURL' | 'Text'): Promise<T> {
         return this.resolveDirectoryUrl(path).then((directoryEntry: DirectoryEntry) => {
@@ -562,8 +587,8 @@ export class FileMock extends File {
     /**
      * Delete a file.
      *
-     * @param {Entry} fe The file to remove.
-     * @return {Promise<any>} Promise resolved when done.
+     * @param fe The file to remove.
+     * @return Promise resolved when done.
      */
     private removeMock(fe: Entry): Promise<any> {
         return new Promise<any>((resolve, reject): void => {
@@ -579,9 +604,9 @@ export class FileMock extends File {
     /**
      * Remove a directory at a given path.
      *
-     * @param {string} path The path to the directory.
-     * @param {string} dirName The directory name.
-     * @returns {Promise<RemoveResult>} Returns a Promise that resolves to a RemoveResult or rejects with an error.
+     * @param path The path to the directory.
+     * @param dirName The directory name.
+     * @return Returns a Promise that resolves to a RemoveResult or rejects with an error.
      */
     removeDir(path: string, dirName: string): Promise<any> {
         return this.resolveDirectoryUrl(path).then((fse) => {
@@ -594,9 +619,9 @@ export class FileMock extends File {
     /**
      * Removes a file from a desired location.
      *
-     * @param {string} path  Base FileSystem.
-     * @param {string} fileName Name of file to remove.
-     * @returns {Promise<RemoveResult>} Returns a Promise that resolves to a RemoveResult or rejects with an error.
+     * @param path Base FileSystem.
+     * @param fileName Name of file to remove.
+     * @return Returns a Promise that resolves to a RemoveResult or rejects with an error.
      */
     removeFile(path: string, fileName: string): Promise<any> {
         return this.resolveDirectoryUrl(path).then((fse) => {
@@ -609,9 +634,9 @@ export class FileMock extends File {
     /**
      * Removes all files and the directory from a desired location.
      *
-     * @param {string} path Base FileSystem. Please refer to the iOS and Android filesystems above
-     * @param {string} dirName Name of directory
-     * @returns {Promise<RemoveResult>} Returns a Promise that resolves with a RemoveResult or rejects with an error.
+     * @param path Base FileSystem. Please refer to the iOS and Android filesystems above
+     * @param dirName Name of directory
+     * @return Returns a Promise that resolves with a RemoveResult or rejects with an error.
      */
     removeRecursively(path: string, dirName: string): Promise<any> {
         return this.resolveDirectoryUrl(path).then((fse) => {
@@ -623,8 +648,7 @@ export class FileMock extends File {
 
     /**
      * Resolves a local directory url
-     * @param directoryUrl {string} directory system url
-     * @returns {Promise<DirectoryEntry>}
+     * @param directoryUrl directory system url
      */
     resolveDirectoryUrl(directoryUrl: string): Promise<DirectoryEntry> {
         return this.resolveLocalFilesystemUrl(directoryUrl).then((de) => {
@@ -641,8 +665,7 @@ export class FileMock extends File {
 
     /**
      * Resolves a local file system URL
-     * @param fileUrl {string} file system url
-     * @returns {Promise<Entry>}
+     * @param fileUrl file system url
      */
     resolveLocalFilesystemUrl(fileUrl: string): Promise<Entry> {
         return new Promise<Entry>((resolve, reject): void => {
@@ -663,8 +686,8 @@ export class FileMock extends File {
     /**
      * Remove a directory and all its contents.
      *
-     * @param {DirectoryEntry} de Directory to remove.
-     * @return {Promise<any>} Promise resolved when done.
+     * @param de Directory to remove.
+     * @return Promise resolved when done.
      */
     private rimrafMock(de: DirectoryEntry): Promise<any> {
         return new Promise<any>((resolve, reject): void => {
@@ -680,9 +703,9 @@ export class FileMock extends File {
     /**
      * Write some data in a file.
      *
-     * @param {FileWriter} writer File writer.
-     * @param {any} data The data to write.
-     * @return {Promise<any>} Promise resolved when done.
+     * @param writer File writer.
+     * @param data The data to write.
+     * @return Promise resolved when done.
      */
     private writeMock(writer: FileWriter, data: any): Promise<any> {
         if (data instanceof Blob) {
@@ -704,10 +727,10 @@ export class FileMock extends File {
     /**
      * Write to an existing file.
      *
-     * @param {string} path Base FileSystem.
-     * @param {string} fileName path relative to base path.
-     * @param {string | Blob} text content or blob to write.
-     * @returns {Promise<void>} Returns a Promise that resolves or rejects with an error.
+     * @param path Base FileSystem.
+     * @param fileName path relative to base path.
+     * @param text content or blob to write.
+     * @return Returns a Promise that resolves or rejects with an error.
      */
     writeExistingFile(path: string, fileName: string, text: string | Blob): Promise<void> {
         return this.writeFile(path, fileName, text, { replace: true });
@@ -716,11 +739,11 @@ export class FileMock extends File {
     /**
      * Write a new file to the desired location.
      *
-     * @param {string} path Base FileSystem. Please refer to the iOS and Android filesystems above
-     * @param {string} fileName path relative to base path
-     * @param {string | Blob} text content or blob to write
-     * @param {any} options replace file if set to true. See WriteOptions for more information.
-     * @returns {Promise<any>} Returns a Promise that resolves to updated file entry or rejects with an error.
+     * @param path Base FileSystem. Please refer to the iOS and Android filesystems above
+     * @param fileName path relative to base path
+     * @param text content or blob to write
+     * @param options replace file if set to true. See WriteOptions for more information.
+     * @return Returns a Promise that resolves to updated file entry or rejects with an error.
      */
     writeFile(path: string, fileName: string, text: string | Blob | ArrayBuffer, options: IWriteOptions = {}): Promise<any> {
         const getFileOpts: any = {
@@ -738,10 +761,10 @@ export class FileMock extends File {
     /**
      * Write content to FileEntry.
      *
-     * @param {FileEntry} fe File entry object.
-     * @param {string | Blob} text Content or blob to write.
-     * @param {IWriteOptions} options replace file if set to true. See WriteOptions for more information.
-     * @returns {Promise<FileEntry>} Returns a Promise that resolves to updated file entry or rejects with an error.
+     * @param fe File entry object.
+     * @param text Content or blob to write.
+     * @param options replace file if set to true. See WriteOptions for more information.
+     * @return Returns a Promise that resolves to updated file entry or rejects with an error.
      */
     private writeFileEntryMock(fe: FileEntry, text: string | Blob | ArrayBuffer, options: IWriteOptions): Promise<FileEntry> {
         return this.createWriterMock(fe).then((writer) => {
@@ -760,9 +783,9 @@ export class FileMock extends File {
     /**
      * Write a file in chunks.
      *
-     * @param {FileWriter} writer File writer.
-     * @param {Blob} data Data to write.
-     * @return {Promise<any>} Promise resolved when done.
+     * @param writer File writer.
+     * @param data Data to write.
+     * @return Promise resolved when done.
      */
     private writeFileInChunksMock(writer: FileWriter, data: Blob): Promise<any> {
         let writtenSize = 0;

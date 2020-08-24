@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -50,12 +50,12 @@ export class AddonQtypeDdImageOrTextQuestion {
     /**
      * Create the this.
      *
-     * @param {CoreLoggerProvider} logger Logger provider.
-     * @param {CoreDomUtilsProvider} domUtils Dom Utils provider.
-     * @param {HTMLElement} container The container HTMLElement of the question.
-     * @param {any} question The question this.
-     * @param {boolean} readOnly Whether it's read only.
-     * @param {any[]} drops The drop zones received in the init object of the question.
+     * @param logger Logger provider.
+     * @param domUtils Dom Utils provider.
+     * @param container The container HTMLElement of the question.
+     * @param question The question this.
+     * @param readOnly Whether it's read only.
+     * @param drops The drop zones received in the init object of the question.
      */
     constructor(logger: CoreLoggerProvider, protected domUtils: CoreDomUtilsProvider, protected container: HTMLElement,
                 protected question: any, protected readOnly: boolean, protected drops: any[]) {
@@ -80,8 +80,8 @@ export class AddonQtypeDdImageOrTextQuestion {
     /**
      * Convert the X and Y position of the BG IMG to a position relative to the window.
      *
-     * @param {number[]} bgImgXY X and Y of the BG IMG relative position.
-     * @return {number[]} Position relative to the window.
+     * @param bgImgXY X and Y of the BG IMG relative position.
+     * @return Position relative to the window.
      */
     convertToWindowXY(bgImgXY: number[]): number[] {
         const bgImg = this.doc.bgImg(),
@@ -133,10 +133,8 @@ export class AddonQtypeDdImageOrTextQuestion {
             const dragNode = this.doc.cloneNewDragItem(i, dragItemNo);
             i++;
 
-            if (!this.readOnly) {
-                // Make the item draggable.
-                this.draggableForQuestion(dragNode, group, choice);
-            }
+            // Make the item draggable.
+            this.draggableForQuestion(dragNode, group, choice);
 
             // If the draggable item needs to be created more than once, create the rest of copies.
             if (dragNode.classList.contains('infinite')) {
@@ -146,9 +144,8 @@ export class AddonQtypeDdImageOrTextQuestion {
                 while (dragsToCreate > 0) {
                     const newDragNode = this.doc.cloneNewDragItem(i, dragItemNo);
                     i++;
-                    if (!this.readOnly) {
-                        this.draggableForQuestion(newDragNode, group, choice);
-                    }
+                    this.draggableForQuestion(newDragNode, group, choice);
+
                     dragsToCreate--;
                 }
             }
@@ -192,8 +189,8 @@ export class AddonQtypeDdImageOrTextQuestion {
     /**
      * Returns an object to encapsulate operations on dd area.
      *
-     * @param {number} slot The question slot.
-     * @return {AddonQtypeDdImageOrTextQuestionDocStructure} The object.
+     * @param slot The question slot.
+     * @return The object.
      */
     docStructure(slot: number): AddonQtypeDdImageOrTextQuestionDocStructure {
         const topNode = <HTMLElement> this.container.querySelector('.addon-qtype-ddimageortext-container'),
@@ -202,11 +199,15 @@ export class AddonQtypeDdImageOrTextQuestion {
         let dragItemsArea = <HTMLElement> topNode.querySelector('div.draghomes');
 
         if (dragItemsArea) {
+            // On 3.9+ dragitems were removed.
+            const dragItems = topNode.querySelector('div.dragitems');
+
+            if (dragItems) {
+                // Remove empty div.dragitems.
+                dragItems.remove();
+            }
+
             // 3.6+ site, transform HTML so it has the same structure as in Moodle 3.5.
-
-            // Remove empty div.dragitems.
-            topNode.querySelector('div.dragitems').remove();
-
             const ddArea = topNode.querySelector('div.ddarea');
 
             // Move div.dropzones to div.ddarea.
@@ -323,32 +324,34 @@ export class AddonQtypeDdImageOrTextQuestion {
     /**
      * Make an element draggable.
      *
-     * @param {HTMLElement} drag Element to make draggable.
-     * @param {number} group Group the element belongs to.
-     * @param {number} choice Choice the element belongs to.
+     * @param drag Element to make draggable.
+     * @param group Group the element belongs to.
+     * @param choice Choice the element belongs to.
      */
     draggableForQuestion(drag: HTMLElement, group: number, choice: number): void {
         // Set attributes.
         drag.setAttribute('group', String(group));
         drag.setAttribute('choice', String(choice));
 
-        // Listen to click events.
-        drag.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
+        if (!this.readOnly) {
+            // Listen to click events.
+            drag.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
 
-            if (drag.classList.contains('beingdragged')) {
-                this.deselectDrags();
-            } else {
-                this.selectDrag(drag);
-            }
-        });
+                if (drag.classList.contains('beingdragged')) {
+                    this.deselectDrags();
+                } else {
+                    this.selectDrag(drag);
+                }
+            });
+        }
     }
 
     /**
      * Function called when a drop zone is clicked.
      *
-     * @param {HTMLElement} dropNode Drop element.
+     * @param dropNode Drop element.
      */
     dropClick(dropNode: HTMLElement): void {
         const drag = this.selected;
@@ -368,9 +371,9 @@ export class AddonQtypeDdImageOrTextQuestion {
     /**
      * Get all the draggable elements for a choice and a drop zone.
      *
-     * @param {number} choice Choice number.
-     * @param {HTMLElement} drop Drop zone.
-     * @return {HTMLElement[]} Draggable elements.
+     * @param choice Choice number.
+     * @param drop Drop zone.
+     * @return Draggable elements.
      */
     getChoicesForDrop(choice: number, drop: HTMLElement): HTMLElement[] {
         return <HTMLElement[]> Array.from(this.doc.topNode().querySelectorAll(
@@ -380,21 +383,16 @@ export class AddonQtypeDdImageOrTextQuestion {
     /**
      * Get an unplaced draggable element that belongs to a certain choice and drop zone.
      *
-     * @param {number} choice Choice number.
-     * @param {HTMLElement} drop Drop zone.
-     * @return {HTMLElement} Unplaced draggable element.
+     * @param choice Choice number.
+     * @param drop Drop zone.
+     * @return Unplaced draggable element.
      */
     getUnplacedChoiceForDrop(choice: number, drop: HTMLElement): HTMLElement {
         const dragItems = this.getChoicesForDrop(choice, drop);
 
-        for (let x = 0; x < dragItems.length; x++) {
-            const dragItem = dragItems[x];
-            if (this.readOnly || (!dragItem.classList.contains('placed') && !dragItem.classList.contains('beingdragged'))) {
-                return dragItem;
-            }
-        }
-
-        return null;
+        return dragItems.find((dragItem) => {
+            return (!dragItem.classList.contains('placed') && !dragItem.classList.contains('beingdragged'));
+        }) || null;
     }
 
     /**
@@ -443,7 +441,7 @@ export class AddonQtypeDdImageOrTextQuestion {
     /**
      * Initialize the question.
      *
-     * @param {any} question Question.
+     * @param question Question.
      */
     initializer(question: any): void {
         this.doc = this.docStructure(question.slot);
@@ -517,8 +515,8 @@ export class AddonQtypeDdImageOrTextQuestion {
     /**
      * Place a draggable element into a certain drop zone.
      *
-     * @param {HTMLElement} drag Draggable element.
-     * @param {HTMLElement} drop Drop zone element.
+     * @param drag Draggable element.
+     * @param drop Drop zone element.
      */
     placeDragInDrop(drag: HTMLElement, drop: HTMLElement): void {
         // Search the input related to the drop zone.
@@ -530,7 +528,7 @@ export class AddonQtypeDdImageOrTextQuestion {
         if (originInputId && originInputId != targetInputId) {
             // Remove it from the previous place.
             const originInputNode = <HTMLInputElement> this.doc.topNode().querySelector('input#' + originInputId);
-            originInputNode.setAttribute('value', '');
+            originInputNode.setAttribute('value', '0');
         }
 
         // Now position the draggable and set it to the input.
@@ -539,7 +537,10 @@ export class AddonQtypeDdImageOrTextQuestion {
         drag.style.top = position[1] - 1 + 'px';
         drag.classList.add('placed');
 
-        inputNode.setAttribute('value', drag.getAttribute('choice'));
+        if (drag.getAttribute('choice')) {
+            inputNode.setAttribute('value', drag.getAttribute('choice'));
+        }
+
         drag.setAttribute('inputid', targetInputId);
     }
 
@@ -568,14 +569,14 @@ export class AddonQtypeDdImageOrTextQuestion {
     /**
      * Remove a draggable element from the drop zone where it is.
      *
-     * @param {HTMLElement} drag Draggable element to remove.
+     * @param drag Draggable element to remove.
      */
     removeDragFromDrop(drag: HTMLElement): void {
         // Check if the draggable element is assigned to an input. If so, empty the input's value.
         const inputId = drag.getAttribute('inputid');
         if (inputId) {
             const inputNode = <HTMLInputElement> this.doc.topNode().querySelector('input#' + inputId);
-            inputNode.setAttribute('value', '');
+            inputNode.setAttribute('value', '0');
         }
 
         // Move the element to its original position.
@@ -652,6 +653,7 @@ export class AddonQtypeDdImageOrTextQuestion {
 
             if (choice > 0) {
                 const dragItem = this.getUnplacedChoiceForDrop(choice, dropZone);
+
                 if (dragItem !== null) {
                     this.placeDragInDrop(dragItem, dropZone);
                 }
@@ -670,7 +672,7 @@ export class AddonQtypeDdImageOrTextQuestion {
     /**
      * Mark a draggable element as selected.
      *
-     * @param {HTMLElement} drag Element to select.
+     * @param drag Element to select.
      */
     selectDrag(drag: HTMLElement): void {
         // Deselect previous ones.
@@ -690,7 +692,7 @@ export class AddonQtypeDdImageOrTextQuestion {
     /**
      * Update the padding of all items in a group to make them all have the same width and height.
      *
-     * @param {number} groupNo The group number.
+     * @param groupNo The group number.
      */
     updatePaddingSizeForGroup(groupNo: number): void {
 

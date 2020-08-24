@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -30,19 +30,21 @@ export class AddonModFolderIndexPage {
     title: string;
     module: any;
     courseId: number;
-    path: string;
+    folderInstance: any;
+    subfolder: any;
 
     constructor(navParams: NavParams) {
         this.module = navParams.get('module') || {};
         this.courseId = navParams.get('courseId');
-        this.path = navParams.get('path');
-        this.title = this.module.name;
+        this.folderInstance = navParams.get('folderInstance');
+        this.subfolder = navParams.get('subfolder');
+        this.title = this.subfolder ? this.subfolder.name : this.module.name;
     }
 
     /**
      * Update some data based on the folder instance.
      *
-     * @param {any} folder Folder instance.
+     * @param folder Folder instance.
      */
     updateData(folder: any): void {
         this.title = folder.name || this.title;

@@ -26,6 +26,9 @@ ion-app.app-root page-addon-mod-lesson-player {
 
         tr:nth-child(odd) {
             background-color: $gray-lighter;
+            @include darkmode() {
+                background-color: $core-dark-item-divider-bg-color;
+            }
         }
 
         tr:last-child td {
@@ -46,19 +49,19 @@ ion-app.app-root page-addon-mod-lesson-player {
         border-bottom: 1px solid $list-md-border-color;
     }
 
-    .item-wp table td {
-        border-bottom: 1px solid $list-wp-border-color;
-    }
-
     .item-ios table {
         @extend .card-ios;
+        @include darkmode() {
+            color: $white;
+            background-color: $core-dark-item-bg-color;
+        }
     }
 
     .item-md table {
         @extend .card-md;
-    }
-
-    .item-wp table {
-        @extend .card-wp;
+        @include darkmode() {
+            color: $white;
+            background-color: $core-dark-item-bg-color;
+        }
     }
 }

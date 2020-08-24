@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Component, ViewChild } from '@angular/core';
+import { Component, ViewChild, ElementRef } from '@angular/core';
 import { IonicPage, NavController, NavParams, Content } from 'ionic-angular';
 import { TranslateService } from '@ngx-translate/core';
+import { CoreEventsProvider } from '@providers/events';
 import { CoreSitesProvider } from '@providers/sites';
 import { CoreDomUtilsProvider } from '@providers/utils/dom';
 import { CoreTextUtilsProvider } from '@providers/utils/text';
@@ -35,6 +36,8 @@ import { CoreConfigConstants } from '../../../../configconstants';
 })
 export class CoreLoginEmailSignupPage {
     @ViewChild(Content) content: Content;
+    @ViewChild('ageForm') ageFormElement: ElementRef;
+    @ViewChild('signupFormEl') signupFormElement: ElementRef;
 
     signupForm: FormGroup;
     siteUrl: string;
@@ -43,7 +46,6 @@ export class CoreLoginEmailSignupPage {
     authInstructions: string;
     settings: any;
     countries: any;
-    countriesKeys: any[];
     categories: any[];
     settingsLoaded = false;
     captcha = {
@@ -53,6 +55,7 @@ export class CoreLoginEmailSignupPage {
     // Data for age verification.
     ageVerificationForm: FormGroup;
     countryControl: FormControl;
+    signUpCountryControl: FormControl;
     isMinor = false; // Whether the user is minor age.
     ageDigitalConsentVerification: boolean; // Whether the age verification is enabled.
     supportName: string;
@@ -66,10 +69,18 @@ export class CoreLoginEmailSignupPage {
     policyErrors: any;
     namefieldsErrors: any;
 
-    constructor(private navCtrl: NavController, navParams: NavParams, private fb: FormBuilder, private wsProvider: CoreWSProvider,
-            private sitesProvider: CoreSitesProvider, private loginHelper: CoreLoginHelperProvider,
-            private domUtils: CoreDomUtilsProvider, private translate: TranslateService, private utils: CoreUtilsProvider,
-            private textUtils: CoreTextUtilsProvider, private userProfileFieldDelegate: CoreUserProfileFieldDelegate) {
+    constructor(protected navCtrl: NavController,
+            navParams: NavParams,
+            protected fb: FormBuilder,
+            protected wsProvider: CoreWSProvider,
+            protected sitesProvider: CoreSitesProvider,
+            protected loginHelper: CoreLoginHelperProvider,
+            protected domUtils: CoreDomUtilsProvider,
+            protected translate: TranslateService,
+            protected utils: CoreUtilsProvider,
+            protected textUtils: CoreTextUtilsProvider,
+            protected userProfileFieldDelegate: CoreUserProfileFieldDelegate,
+            protected eventsProvider: CoreEventsProvider) {
 
         this.siteUrl = navParams.get('siteUrl');
 
@@ -111,7 +122,8 @@ export class CoreLoginEmailSignupPage {
      */
     protected completeFormGroup(): void {
         this.signupForm.addControl('city', this.fb.control(this.settings.defaultcity || ''));
-        this.signupForm.addControl('country', this.fb.control(this.settings.country || ''));
+        this.signUpCountryControl = this.fb.control(this.settings.country || '');
+        this.signupForm.addControl('country', this.signUpCountryControl);
 
         // Add the name fields.
         for (const i in this.settings.namefields) {
@@ -177,9 +189,8 @@ export class CoreLoginEmailSignupPage {
                 });
             }
 
-            return this.utils.getCountryList().then((countries) => {
+            return this.utils.getCountryListSorted().then((countries) => {
                 this.countries = countries;
-                this.countriesKeys = Object.keys(countries);
             });
         });
     }
@@ -187,8 +198,8 @@ export class CoreLoginEmailSignupPage {
     /**
      * Treat the site config, checking if it's valid and extracting the data we're interested in.
      *
-     * @param {any} siteConfig Site config to treat.
-     * @return {boolean} True if success.
+     * @param siteConfig Site config to treat.
+     * @return True if success.
      */
     protected treatSiteConfig(siteConfig: any): boolean {
         if (siteConfig && siteConfig.registerauth == 'email' && !this.loginHelper.isEmailSignupDisabled(siteConfig)) {
@@ -212,7 +223,7 @@ export class CoreLoginEmailSignupPage {
     /**
      * Pull to refresh.
      *
-     * @param {any} refresher Refresher.
+     * @param refresher Refresher.
      */
     refreshSettings(refresher: any): void {
         this.fetchData().finally(() => {
@@ -223,7 +234,7 @@ export class CoreLoginEmailSignupPage {
     /**
      * Create account.
      *
-     * @param {Event} e Event.
+     * @param e Event.
      */
     create(e: Event): void {
         e.preventDefault();
@@ -265,6 +276,9 @@ export class CoreLoginEmailSignupPage {
                     return this.wsProvider.callAjax('auth_email_signup_user', params, { siteUrl: this.siteUrl });
                 }).then((result) => {
                     if (result.success) {
+
+                        this.domUtils.triggerFormSubmittedEvent(this.signupFormElement, true);
+
                         // Show alert and ho back.
                         const message = this.translate.instant('core.login.emailconfirmsent', { $a: params.email });
                         this.domUtils.showAlert(this.translate.instant('core.success'), message);
@@ -292,8 +306,8 @@ export class CoreLoginEmailSignupPage {
     /**
      * Escape mail to avoid special characters to be treated as a RegExp.
      *
-     * @param  {string} text Initial mail.
-     * @return {string}      Escaped mail.
+     * @param text Initial mail.
+     * @return Escaped mail.
      */
     escapeMail(text: string): string {
         return this.textUtils.escapeForRegex(text);
@@ -303,7 +317,7 @@ export class CoreLoginEmailSignupPage {
      * Show authentication instructions.
      */
     protected showAuthInstructions(): void {
-        this.textUtils.expandText(this.translate.instant('core.login.instructions'), this.authInstructions);
+        this.textUtils.viewText(this.translate.instant('core.login.instructions'), this.authInstructions);
     }
 
     /**
@@ -316,7 +330,7 @@ export class CoreLoginEmailSignupPage {
     /**
      * Verify Age.
      *
-     * @param {Event} e Event.
+     * @param e Event.
      */
     verifyAge(e: Event): void {
         e.preventDefault();
@@ -334,7 +348,14 @@ export class CoreLoginEmailSignupPage {
         params.age = parseInt(params.age, 10); // Use just the integer part.
 
         this.wsProvider.callAjax('core_auth_is_minor', params, {siteUrl: this.siteUrl}).then((result) => {
+
+            this.domUtils.triggerFormSubmittedEvent(this.ageFormElement, true);
+
             if (!result.status) {
+                if (this.countryControl.value) {
+                    this.signUpCountryControl.setValue(this.countryControl.value);
+                }
+
                 // Not a minor, go ahead!
                 this.ageDigitalConsentVerification = false;
             } else {

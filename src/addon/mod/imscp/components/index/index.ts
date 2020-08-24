@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,11 +14,10 @@
 
 import { Component, Injector } from '@angular/core';
 import { ModalController } from 'ionic-angular';
-import { CoreAppProvider } from '@providers/app';
-import { CoreCourseProvider } from '@core/course/providers/course';
-import { CoreCourseModuleMainResourceComponent } from '@core/course/classes/main-resource-component';
+import {
+    CoreCourseModuleMainResourceComponent, CoreCourseResourceDownloadResult
+} from '@core/course/classes/main-resource-component';
 import { AddonModImscpProvider } from '../../providers/imscp';
-import { AddonModImscpPrefetchHandler } from '../../providers/prefetch-handler';
 
 /**
  * Component that displays a IMSCP.
@@ -33,14 +32,15 @@ export class AddonModImscpIndexComponent extends CoreCourseModuleMainResourceCom
     items = [];
     currentItem: string;
     src = '';
+    warning: string;
 
     // Initialize empty previous/next to prevent showing arrows for an instant before they're hidden.
     previousItem = '';
     nextItem = '';
 
-    constructor(injector: Injector, private imscpProvider: AddonModImscpProvider, private courseProvider: CoreCourseProvider,
-            private appProvider: CoreAppProvider, private modalCtrl: ModalController,
-            private imscpPrefetch: AddonModImscpPrefetchHandler) {
+    constructor(injector: Injector,
+            protected imscpProvider: AddonModImscpProvider,
+            protected modalCtrl: ModalController) {
         super(injector);
     }
 
@@ -62,7 +62,7 @@ export class AddonModImscpIndexComponent extends CoreCourseModuleMainResourceCom
     /**
      * Perform the invalidate content function.
      *
-     * @return {Promise<any>} Resolved when done.
+     * @return Resolved when done.
      */
     protected invalidateContent(): Promise<any> {
         return this.imscpProvider.invalidateContent(this.module.id, this.courseId);
@@ -71,28 +71,20 @@ export class AddonModImscpIndexComponent extends CoreCourseModuleMainResourceCom
     /**
      * Download imscp contents.
      *
-     * @param  {boolean} [refresh] Whether we're refreshing data.
-     * @return {Promise<any>} Promise resolved when done.
+     * @param refresh Whether we're refreshing data.
+     * @return Promise resolved when done.
      */
     protected fetchContent(refresh?: boolean): Promise<any> {
-        let downloadFailed = false;
+        let downloadResult: CoreCourseResourceDownloadResult;
         const promises = [];
 
         promises.push(this.imscpProvider.getImscp(this.courseId, this.module.id).then((imscp) => {
-            this.description = imscp.intro || imscp.description;
+            this.description = imscp.intro;
             this.dataRetrieved.emit(imscp);
         }));
 
-        promises.push(this.imscpPrefetch.download(this.module, this.courseId).catch(() => {
-            // Mark download as failed but go on since the main files could have been downloaded.
-            downloadFailed = true;
-
-            return this.courseProvider.loadModuleContents(this.module, this.courseId).catch((error) => {
-                // Error getting module contents, fail.
-                this.domUtils.showErrorModalDefault(error, 'core.course.errorgetmodule', true);
-
-                return Promise.reject(null);
-            });
+        promises.push(this.downloadResourceIfNeeded(refresh).then((result) => {
+            downloadResult = result;
         }));
 
         return Promise.all(promises).then(() => {
@@ -107,12 +99,9 @@ export class AddonModImscpIndexComponent extends CoreCourseModuleMainResourceCom
                 return Promise.reject(null);
             });
         }).then(() => {
-            if (downloadFailed && this.appProvider.isOnline()) {
-                // We could load the main file but the download failed. Show error message.
-                this.domUtils.showErrorModal('core.errordownloadingsomefiles', true);
-            }
+            this.warning = downloadResult.failed ? this.getErrorDownloadingSomeFilesMessage(downloadResult.error) : '';
 
-            // All data obtained, now fill the context menu.
+        }).finally(() => {
             this.fillContextMenu(refresh);
         });
     }
@@ -120,8 +109,8 @@ export class AddonModImscpIndexComponent extends CoreCourseModuleMainResourceCom
     /**
      * Loads an item.
      *
-     * @param  {string} itemId Item ID.
-     * @return {Promise<any>} Promise resolved when done.
+     * @param itemId Item ID.
+     * @return Promise resolved when done.
      */
     loadItem(itemId: string): Promise<any> {
         return this.imscpProvider.getIframeSrc(this.module, itemId).then((src) => {
@@ -144,7 +133,7 @@ export class AddonModImscpIndexComponent extends CoreCourseModuleMainResourceCom
     /**
      * Show the TOC.
      *
-     * @param {MouseEvent} event Event.
+     * @param event Event.
      */
     showToc(event: MouseEvent): void {
         // Create the toc modal.

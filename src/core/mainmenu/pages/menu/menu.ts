@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import { Component, OnDestroy, ViewChild, ChangeDetectorRef } from '@angular/core';
-import { IonicPage, NavController, NavParams } from 'ionic-angular';
+import { IonicPage, NavController, NavParams, Platform } from 'ionic-angular';
 import { CoreAppProvider } from '@providers/app';
 import { CoreSitesProvider } from '@providers/sites';
 import { CoreEventsProvider } from '@providers/events';
@@ -45,13 +45,21 @@ export class CoreMainMenuPage implements OnDestroy {
     protected pendingRedirect: any;
     protected urlToOpen: string;
     protected mainMenuId: number;
+    protected keyboardObserver: any;
 
     @ViewChild('mainTabs') mainTabs: CoreIonTabsComponent;
 
-    constructor(private menuDelegate: CoreMainMenuDelegate, private sitesProvider: CoreSitesProvider, navParams: NavParams,
-            private navCtrl: NavController, private eventsProvider: CoreEventsProvider, private cdr: ChangeDetectorRef,
-            private mainMenuProvider: CoreMainMenuProvider, private linksDelegate: CoreContentLinksDelegate,
-            private linksHelper: CoreContentLinksHelperProvider, private appProvider: CoreAppProvider) {
+    constructor(protected menuDelegate: CoreMainMenuDelegate,
+            protected sitesProvider: CoreSitesProvider,
+            navParams: NavParams,
+            protected navCtrl: NavController,
+            protected eventsProvider: CoreEventsProvider,
+            protected cdr: ChangeDetectorRef,
+            protected mainMenuProvider: CoreMainMenuProvider,
+            protected linksDelegate: CoreContentLinksDelegate,
+            protected linksHelper: CoreContentLinksHelperProvider,
+            protected appProvider: CoreAppProvider,
+            protected platform: Platform) {
 
         this.mainMenuId = this.appProvider.getMainMenuId();
 
@@ -109,6 +117,21 @@ export class CoreMainMenuPage implements OnDestroy {
         });
 
         window.addEventListener('resize', this.initHandlers.bind(this));
+
+        if (this.platform.is('ios')) {
+            // In iOS, the resize event is triggered before the keyboard is opened/closed and not triggered again once done.
+            // Init handlers again once keyboard is closed since the resize event doesn't have the updated height.
+            this.keyboardObserver = this.eventsProvider.on(CoreEventsProvider.KEYBOARD_CHANGE, (kbHeight) => {
+                if (kbHeight === 0) {
+                    this.initHandlers();
+
+                    // If the device is slow it can take a bit more to update the window height. Retry in a few ms.
+                    setTimeout(() => {
+                        this.initHandlers();
+                    }, 250);
+                }
+            });
+        }
 
         this.appProvider.setMainMenuOpen(this.mainMenuId, true);
     }
@@ -187,7 +210,7 @@ export class CoreMainMenuPage implements OnDestroy {
     /**
      * Handle a redirect.
      *
-     * @param {any} data Data received.
+     * @param data Data received.
      */
     protected handleRedirect(data: any): void {
         // Check if the redirect page is the root page of any of the tabs.
@@ -221,5 +244,6 @@ export class CoreMainMenuPage implements OnDestroy {
         this.redirectObs && this.redirectObs.off();
         window.removeEventListener('resize', this.initHandlers.bind(this));
         this.appProvider.setMainMenuOpen(this.mainMenuId, false);
+        this.keyboardObserver && this.keyboardObserver.off();
     }
 }

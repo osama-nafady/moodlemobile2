@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ import { SQLite } from '@ionic-native/sqlite';
 import { Platform } from 'ionic-angular';
 import { SQLiteDB } from '@classes/sqlitedb';
 import { SQLiteDBMock } from '@core/emulator/classes/sqlitedb';
+import { makeSingleton } from '@singletons/core.singletons';
 
 /**
  * This service allows interacting with the local database to store and retrieve data.
@@ -33,9 +34,9 @@ export class CoreDbProvider {
      *
      * The database objects are cached statically.
      *
-     * @param {string} name DB name.
-     * @param {boolean} forceNew True if it should always create a new instance.
-     * @return {SQLiteDB} DB.
+     * @param name DB name.
+     * @param forceNew True if it should always create a new instance.
+     * @return DB.
      */
     getDB(name: string, forceNew?: boolean): SQLiteDB {
         if (typeof this.dbInstances[name] === 'undefined' || forceNew) {
@@ -52,8 +53,8 @@ export class CoreDbProvider {
     /**
      * Delete a DB.
      *
-     * @param {string} name DB name.
-     * @return {Promise<any>} Promise resolved when the DB is deleted.
+     * @param name DB name.
+     * @return Promise resolved when the DB is deleted.
      */
     deleteDB(name: string): Promise<any> {
         let promise;
@@ -81,3 +82,5 @@ export class CoreDbProvider {
         });
     }
 }
+
+export class CoreDB extends makeSingleton(CoreDbProvider) {}

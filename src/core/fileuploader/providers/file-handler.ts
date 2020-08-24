@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,6 +20,8 @@ import { CoreTimeUtilsProvider } from '@providers/utils/time';
 import { CoreFileUploaderHandler, CoreFileUploaderHandlerData } from './delegate';
 import { CoreFileUploaderHelperProvider } from './helper';
 import { CoreFileUploaderProvider } from './fileuploader';
+import { TranslateService } from '@ngx-translate/core';
+
 /**
  * Handler to upload any type of file.
  */
@@ -28,14 +30,18 @@ export class CoreFileUploaderFileHandler implements CoreFileUploaderHandler {
     name = 'CoreFileUploaderFile';
     priority = 1200;
 
-    constructor(private appProvider: CoreAppProvider, private platform: Platform, private timeUtils: CoreTimeUtilsProvider,
-            private uploaderHelper: CoreFileUploaderHelperProvider, private uploaderProvider: CoreFileUploaderProvider,
-            private domUtils: CoreDomUtilsProvider) { }
+    constructor(protected appProvider: CoreAppProvider,
+            protected platform: Platform,
+            protected timeUtils: CoreTimeUtilsProvider,
+            protected uploaderHelper: CoreFileUploaderHelperProvider,
+            protected uploaderProvider: CoreFileUploaderProvider,
+            protected domUtils: CoreDomUtilsProvider,
+            protected translate: TranslateService) { }
 
     /**
      * Whether or not the handler is enabled on a site level.
      *
-     * @return {boolean|Promise<boolean>} True or promise resolved with true if enabled.
+     * @return True or promise resolved with true if enabled.
      */
     isEnabled(): boolean | Promise<boolean> {
         return this.platform.is('android') || !this.appProvider.isMobile() ||
@@ -45,8 +51,8 @@ export class CoreFileUploaderFileHandler implements CoreFileUploaderHandler {
     /**
      * Given a list of mimetypes, return the ones that are supported by the handler.
      *
-     * @param {string[]} [mimetypes] List of mimetypes.
-     * @return {string[]} Supported mimetypes.
+     * @param mimetypes List of mimetypes.
+     * @return Supported mimetypes.
      */
     getSupportedMimetypes(mimetypes: string[]): string[] {
         return mimetypes;
@@ -55,16 +61,27 @@ export class CoreFileUploaderFileHandler implements CoreFileUploaderHandler {
     /**
      * Get the data to display the handler.
      *
-     * @return {CoreFileUploaderHandlerData} Data.
+     * @return Data.
      */
     getData(): CoreFileUploaderHandlerData {
-        const isIOS = this.platform.is('ios');
-
-        return {
-            title: isIOS ? 'core.fileuploader.more' : 'core.fileuploader.file',
+        const handler: CoreFileUploaderHandlerData = {
+            title: 'core.fileuploader.file',
             class: 'core-fileuploader-file-handler',
-            icon: isIOS ? 'more' : 'folder',
-            afterRender: (maxSize: number, upload: boolean, allowOffline: boolean, mimetypes: string[]): void => {
+            icon: 'folder',
+        };
+
+        if (this.appProvider.isMobile()) {
+            handler.action = (maxSize?: number, upload?: boolean, allowOffline?: boolean, mimetypes?: string[]): Promise<any> => {
+                return this.uploaderHelper.chooseAndUploadFile(maxSize, upload, allowOffline, mimetypes).then((result) => {
+                    return {
+                        treated: true,
+                        result: result
+                    };
+                });
+            };
+
+        } else {
+            handler.afterRender = (maxSize: number, upload: boolean, allowOffline: boolean, mimetypes: string[]): void => {
                 // Add an invisible file input in the file handler.
                 // It needs to be done like this because the action sheet items don't accept inputs.
                 const element = document.querySelector('.core-fileuploader-file-handler');
@@ -79,7 +96,6 @@ export class CoreFileUploaderFileHandler implements CoreFileUploaderHandler {
 
                     input.addEventListener('change', (evt: Event) => {
                         const file = input.files[0];
-                        let fileName;
 
                         input.value = ''; // Unset input.
                         if (!file) {
@@ -94,22 +110,12 @@ export class CoreFileUploaderFileHandler implements CoreFileUploaderHandler {
                             return;
                         }
 
-                        fileName = file.name;
-                        if (isIOS) {
-                            // Check the name of the file and add a timestamp if needed (take picture).
-                            const matches = fileName.match(/image\.(jpe?g|png)/);
-                            if (matches) {
-                                fileName = 'image_' + this.timeUtils.readableTimestamp() + '.' + matches[1];
-                            }
-                        }
-
                         // Upload the picked file.
-                        this.uploaderHelper.uploadFileObject(file, maxSize, upload, allowOffline, fileName).then((result) => {
+                        this.uploaderHelper.uploadFileObject(file, maxSize, upload, allowOffline, file.name).then((result) => {
                             this.uploaderHelper.fileUploaded(result);
                         }).catch((error) => {
-                            if (error) {
-                                this.domUtils.showErrorModal(error);
-                            }
+                            this.domUtils.showErrorModalDefault(error,
+                                    this.translate.instant('core.fileuploader.errorreadingfile'));
                         });
                     });
 
@@ -130,7 +136,9 @@ export class CoreFileUploaderFileHandler implements CoreFileUploaderHandler {
                         element.appendChild(input);
                     }
                 }
-            }
-        };
+            };
+        }
+
+        return handler;
     }
 }

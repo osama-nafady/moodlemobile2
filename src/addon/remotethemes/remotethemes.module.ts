@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -102,7 +102,7 @@ export class AddonRemoteThemesModule {
 
         // Load temporary styles when site config is checked in login.
         eventsProvider.on(CoreEventsProvider.LOGIN_SITE_CHECKED, (data) => {
-            remoteThemesProvider.loadTmpStyles(data.config.mobilecssurl).catch((error) => {
+            remoteThemesProvider.loadTmpStylesForSiteConfig(data.config).catch((error) => {
                 logger.error('Error loading tmp styles', error);
             });
         });

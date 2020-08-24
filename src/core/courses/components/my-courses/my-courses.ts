@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@ import { Searchbar } from 'ionic-angular';
 import { CoreEventsProvider } from '@providers/events';
 import { CoreSitesProvider } from '@providers/sites';
 import { CoreDomUtilsProvider } from '@providers/utils/dom';
-import { CoreCoursesProvider } from '../../providers/courses';
+import { CoreCoursesProvider, CoreCoursesMyCoursesUpdatedEventData } from '../../providers/courses';
 import { CoreCoursesHelperProvider } from '../../providers/helper';
 import { CoreCourseHelperProvider } from '@core/course/providers/helper';
 import { CoreCourseOptionsDelegate } from '@core/course/providers/options-delegate';
@@ -63,8 +63,13 @@ export class CoreCoursesMyCoursesComponent implements OnInit, OnDestroy {
             this.coursesLoaded = true;
         });
 
-        this.myCoursesObserver = this.eventsProvider.on(CoreCoursesProvider.EVENT_MY_COURSES_UPDATED, () => {
-            this.fetchCourses();
+        // Update list if user enrols in a course.
+        this.myCoursesObserver = this.eventsProvider.on(CoreCoursesProvider.EVENT_MY_COURSES_UPDATED,
+                (data: CoreCoursesMyCoursesUpdatedEventData) => {
+
+            if (data.action == CoreCoursesProvider.ACTION_ENROL) {
+                this.fetchCourses();
+            }
         }, this.sitesProvider.getCurrentSiteId());
 
         // Refresh the enabled flags if site is updated.
@@ -84,7 +89,7 @@ export class CoreCoursesMyCoursesComponent implements OnInit, OnDestroy {
     /**
      * Fetch the user courses.
      *
-     * @return {Promise<any>} Promise resolved when done.
+     * @return Promise resolved when done.
      */
     protected fetchCourses(): Promise<any> {
         return this.coursesProvider.getUserCourses().then((courses) => {
@@ -121,7 +126,7 @@ export class CoreCoursesMyCoursesComponent implements OnInit, OnDestroy {
     /**
      * Refresh the courses.
      *
-     * @param {any} refresher Refresher.
+     * @param refresher Refresher.
      */
     refreshCourses(refresher: any): void {
         const promises = [];
@@ -158,7 +163,7 @@ export class CoreCoursesMyCoursesComponent implements OnInit, OnDestroy {
     /**
      * The filter has changed.
      *
-     * @param {any} Received Event.
+     * @param Received Event.
      */
     filterChanged(event: any): void {
         const newValue = event.target.value && event.target.value.trim().toLowerCase();
@@ -181,7 +186,7 @@ export class CoreCoursesMyCoursesComponent implements OnInit, OnDestroy {
     /**
      * Prefetch all the courses.
      *
-     * @return {Promise<any>} Promise resolved when done.
+     * @return Promise resolved when done.
      */
     prefetchCourses(): Promise<any> {
         const initialIcon = this.prefetchCoursesData.icon;

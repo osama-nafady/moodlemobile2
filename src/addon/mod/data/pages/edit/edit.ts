@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Component, ViewChild } from '@angular/core';
+import { Component, ViewChild, ElementRef } from '@angular/core';
 import { Content, IonicPage, NavParams, NavController } from 'ionic-angular';
 import { TranslateService } from '@ngx-translate/core';
 import { FormGroup } from '@angular/forms';
@@ -40,6 +40,7 @@ import { CoreTagProvider } from '@core/tag/providers/tag';
 })
 export class AddonModDataEditPage {
     @ViewChild(Content) content: Content;
+    @ViewChild('editFormEl') formElement: ElementRef;
 
     protected module: any;
     protected courseId: number;
@@ -93,36 +94,33 @@ export class AddonModDataEditPage {
     /**
      * Check if we can leave the page or not and ask to confirm the lost of data.
      *
-     * @return {boolean | Promise<void>} Resolved if we can leave it, rejected if not.
+     * @return Resolved if we can leave it, rejected if not.
      */
-    ionViewCanLeave(): boolean | Promise<void> {
+    async ionViewCanLeave(): Promise<void> {
         if (this.forceLeave || !this.entry) {
-            return true;
+            return;
         }
 
         const inputData = this.editForm.value;
 
-        return this.dataHelper.hasEditDataChanged(inputData, this.fieldsArray, this.data.id,
-                this.entry.contents).then((changed) => {
-            if (!changed) {
-                return Promise.resolve();
-            }
+        const changed = await this.dataHelper.hasEditDataChanged(inputData, this.fieldsArray, this.data.id, this.entry.contents);
 
+        if (changed) {
             // Show confirmation if some data has been modified.
-            return  this.domUtils.showConfirm(this.translate.instant('core.confirmcanceledit'));
-        }).then(() => {
-            // Delete the local files from the tmp folder.
-            return this.dataHelper.getEditTmpFiles(inputData, this.fieldsArray, this.data.id,
-                    this.entry.contents).then((files) => {
-                this.fileUploaderProvider.clearTmpFiles(files);
-            });
-        });
+            await this.domUtils.showConfirm(this.translate.instant('core.confirmcanceledit'));
+        }
+
+        // Delete the local files from the tmp folder.
+        const files = await this.dataHelper.getEditTmpFiles(inputData, this.fieldsArray, this.data.id, this.entry.contents);
+        this.fileUploaderProvider.clearTmpFiles(files);
+
+        this.domUtils.triggerFormCancelledEvent(this.formElement, this.siteId);
     }
 
     /**
      * Fetch the entry data.
      *
-     * @return {Promise<any>}         Resolved when done.
+     * @return Resolved when done.
      */
     protected fetchEntryData(): Promise<any> {
         return this.dataProvider.getDatabase(this.courseId, this.module.id).then((data) => {
@@ -159,8 +157,8 @@ export class AddonModDataEditPage {
     /**
      * Saves data.
      *
-     * @param {Event} e Event.
-     * @return {Promise<any>} Resolved when done.
+     * @param e Event.
+     * @return Resolved when done.
      */
     save(e: Event): Promise<any> {
         e.preventDefault();
@@ -216,6 +214,13 @@ export class AddonModDataEditPage {
 
                 // This is done if entry is updated when editing or creating if not.
                 if ((this.entryId && result.updated) || (!this.entryId && result.newentryid)) {
+
+                    this.domUtils.triggerFormSubmittedEvent(this.formElement, result.sent, this.siteId);
+
+                    if (result.sent) {
+                        this.eventsProvider.trigger(CoreEventsProvider.ACTIVITY_DATA_SENT, { module: 'data' });
+                    }
+
                     const promises = [];
 
                     this.entryId = this.entryId || result.newentryid;
@@ -256,8 +261,8 @@ export class AddonModDataEditPage {
     /**
      * Set group to see the database.
      *
-     * @param  {number}       groupId Group identifier to set.
-     * @return {Promise<any>}         Resolved when done.
+     * @param groupId Group identifier to set.
+     * @return Resolved when done.
      */
     setGroup(groupId: number): Promise<any> {
         this.selectedGroup = groupId;
@@ -269,7 +274,7 @@ export class AddonModDataEditPage {
     /**
      * Displays Edit Search Fields.
      *
-     * @return {string}  Generated HTML.
+     * @return Generated HTML.
      */
     protected displayEditFields(): string {
         this.jsData = {
@@ -315,7 +320,7 @@ export class AddonModDataEditPage {
     /**
      * Return to the entry list (previous page) discarding temp data.
      *
-     * @return {Promise<any>}  Resolved when done.
+     * @return Resolved when done.
      */
     protected returnToEntryList(): Promise<any> {
         const inputData = this.editForm.value;

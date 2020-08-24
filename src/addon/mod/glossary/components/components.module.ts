@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import { CoreComponentsModule } from '@components/components.module';
 import { CoreDirectivesModule } from '@directives/directives.module';
 import { CorePipesModule } from '@pipes/pipes.module';
 import { CoreCourseComponentsModule } from '@core/course/components/components.module';
+import { CoreSearchComponentsModule } from '@core/search/components/components.module';
 import { AddonModGlossaryIndexComponent } from './index/index';
 import { AddonModGlossaryModePickerPopoverComponent } from './mode-picker/mode-picker';
 
@@ -35,7 +36,8 @@ import { AddonModGlossaryModePickerPopoverComponent } from './mode-picker/mode-p
         CoreComponentsModule,
         CoreDirectivesModule,
         CorePipesModule,
-        CoreCourseComponentsModule
+        CoreCourseComponentsModule,
+        CoreSearchComponentsModule,
     ],
     providers: [
     ],

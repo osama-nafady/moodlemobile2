@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -37,12 +37,7 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
 
     scorm: any; // The SCORM object.
     currentOrganization: any = {}; // Selected organization.
-    scormOptions: any = { // Options to open the SCORM.
-        mode: AddonModScormProvider.MODENORMAL,
-        newAttempt: false
-    };
-    modeNormal = AddonModScormProvider.MODENORMAL; // Normal open mode.
-    modeBrowser = AddonModScormProvider.MODEBROWSE; // Browser open mode.
+    startNewAttempt = false;
     errorMessage: string; // Error message.
     syncTime: string; // Last sync time.
     hasOffline: boolean; // Whether the SCORM has offline data.
@@ -107,7 +102,7 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
     /**
      * Download a SCORM package or restores an ongoing download.
      *
-     * @return {Promise<any>} Promise resolved when done.
+     * @return Promise resolved when done.
      */
     protected downloadScormPackage(): Promise<any> {
         this.downloading = true;
@@ -143,10 +138,10 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
     /**
      * Get the SCORM data.
      *
-     * @param {boolean} [refresh=false] If it's refreshing content.
-     * @param {boolean} [sync=false] If it should try to sync.
-     * @param {boolean} [showErrors=false] If show errors to the user of hide them.
-     * @return {Promise<any>} Promise resolved when done.
+     * @param refresh If it's refreshing content.
+     * @param sync If it should try to sync.
+     * @param showErrors If show errors to the user of hide them.
+     * @return Promise resolved when done.
      */
     protected fetchContent(refresh: boolean = false, sync: boolean = false, showErrors: boolean = false): Promise<any> {
 
@@ -223,7 +218,7 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
 
                     if (this.scorm.forcenewattempt == AddonModScormProvider.SCORM_FORCEATTEMPT_ALWAYS ||
                             (this.scorm.forcenewattempt && !this.scorm.incomplete)) {
-                        this.scormOptions.newAttempt = true;
+                        this.startNewAttempt = true;
                     }
 
                     promises.push(this.getReportedGrades());
@@ -254,8 +249,7 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
                     }
                 });
             });
-        }).then(() => {
-            // All data obtained, now fill the context menu.
+        }).finally(() => {
             this.fillContextMenu(refresh);
         });
     }
@@ -263,7 +257,7 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
     /**
      * Fetch the structure of the SCORM (TOC).
      *
-     * @return {Promise<any>} Promise resolved when done.
+     * @return Promise resolved when done.
      */
     protected fetchStructure(): Promise<any> {
         return this.scormProvider.getOrganizations(this.scorm.id).then((organizations) => {
@@ -285,10 +279,10 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
     /**
      * Get the grade of an attempt and add it to the scorm attempts list.
      *
-     * @param {number} attempt The attempt number.
-     * @param {boolean} offline Whether it's an offline attempt.
-     * @param {any} attempts Object where to add the attempt.
-     * @return {Promise<void>} Promise resolved when done.
+     * @param attempt The attempt number.
+     * @param offline Whether it's an offline attempt.
+     * @param attempts Object where to add the attempt.
+     * @return Promise resolved when done.
      */
     protected getAttemptGrade(attempt: number, offline: boolean, attempts: any): Promise<void> {
         return this.scormProvider.getAttemptGrade(this.scorm, attempt, offline).then((grade) => {
@@ -302,7 +296,7 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
     /**
      * Get the grades of each attempt and the grade of the SCORM.
      *
-     * @return {Promise<any>} Promise resolved when done.
+     * @return Promise resolved when done.
      */
     protected getReportedGrades(): Promise<any> {
         const promises = [],
@@ -351,8 +345,8 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
     /**
      * Checks if sync has succeed from result sync data.
      *
-     * @param  {any}     result Data returned on the sync function.
-     * @return {boolean}        If suceed or not.
+     * @param result Data returned on the sync function.
+     * @return If suceed or not.
      */
     protected hasSyncSucceed(result: any): boolean {
         if (result.updated || this.dataSent) {
@@ -373,7 +367,7 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
 
         if (this.hasPlayed) {
             this.hasPlayed = false;
-            this.scormOptions.newAttempt = false; // Uncheck new attempt.
+            this.startNewAttempt = false; // Uncheck new attempt.
 
             // Add a delay to make sure the player has started the last writing calls so we can detect conflicts.
             setTimeout(() => {
@@ -412,7 +406,7 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
     /**
      * Perform the invalidate content function.
      *
-     * @return {Promise<any>} Resolved when done.
+     * @return Resolved when done.
      */
     protected invalidateContent(): Promise<any> {
         const promises = [];
@@ -429,8 +423,8 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
     /**
      * Compares sync event data with current data to check if refresh content is needed.
      *
-     * @param {any} syncEventData Data receiven on sync observer.
-     * @return {boolean} True if refresh is needed, false otherwise.
+     * @param syncEventData Data receiven on sync observer.
+     * @return True if refresh is needed, false otherwise.
      */
     protected isRefreshSyncNeeded(syncEventData: any): boolean {
         if (syncEventData.updated && this.scorm && syncEventData.scormId == this.scorm.id) {
@@ -455,8 +449,8 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
     /**
      * Load the TOC of a certain organization.
      *
-     * @param {string} organizationId The organization id.
-     * @return {Promise<any>} Promise resolved when done.
+     * @param organizationId The organization id.
+     * @return Promise resolved when done.
      */
     protected loadOrganizationToc(organizationId: string): Promise<any> {
         if (!this.scorm.displaycoursestructure) {
@@ -490,10 +484,10 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
     /**
      * Open a SCORM. It will download the SCORM package if it's not downloaded or it has changed.
      *
-     * @param {Event} [event] Event.
-     * @param {string} [scoId] SCO that needs to be loaded when the SCORM is opened. If not defined, load first SCO.
+     * @param event Event.
+     * @param scoId SCO that needs to be loaded when the SCORM is opened. If not defined, load first SCO.
      */
-    open(event?: Event, scoId?: number): void {
+    open(event?: Event, preview: boolean = false, scoId?: number): void {
         if (event) {
             event.preventDefault();
             event.stopPropagation();
@@ -516,7 +510,7 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
                     this.downloadScormPackage().then(() => {
                         // Success downloading, open SCORM if user hasn't left the view.
                         if (!this.isDestroyed) {
-                            this.openScorm(scoId);
+                            this.openScorm(scoId, preview);
                         }
                     }).catch((error) => {
                         if (!this.isDestroyed) {
@@ -527,20 +521,20 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
                 });
             });
         } else {
-            this.openScorm(scoId);
+            this.openScorm(scoId, preview);
         }
     }
 
     /**
      * Open a SCORM package.
      *
-     * @param {number} scoId SCO ID.
+     * @param scoId SCO ID.
      */
-    protected openScorm(scoId: number): void {
+    protected openScorm(scoId: number, preview: boolean = false): void {
         this.navCtrl.push('AddonModScormPlayerPage', {
             scorm: this.scorm,
-            mode: this.scormOptions.mode,
-            newAttempt: !!this.scormOptions.newAttempt,
+            mode: preview ? AddonModScormProvider.MODEBROWSE : AddonModScormProvider.MODENORMAL,
+            newAttempt: !!this.startNewAttempt,
             organizationId: this.currentOrganization.identifier,
             scoId: scoId
         });
@@ -549,8 +543,8 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
     /**
      * Displays some data based on the current status.
      *
-     * @param {string} status The current status.
-     * @param {string} [previousStatus] The previous status. If not defined, there is no previous status.
+     * @param status The current status.
+     * @param previousStatus The previous status. If not defined, there is no previous status.
      */
     protected showStatus(status: string, previousStatus?: string): void {
 
@@ -574,7 +568,7 @@ export class AddonModScormIndexComponent extends CoreCourseModuleMainActivityCom
     /**
      * Performs the sync of the activity.
      *
-     * @return {Promise<any>} Promise resolved when done.
+     * @return Promise resolved when done.
      */
     protected sync(): Promise<any> {
         return this.scormSync.syncScorm(this.scorm).then((result) => {

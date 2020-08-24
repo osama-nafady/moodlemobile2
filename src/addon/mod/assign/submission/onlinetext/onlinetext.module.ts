@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@ import { AddonModAssignSubmissionOnlineTextComponent } from './component/onlinet
 import { AddonModAssignSubmissionDelegate } from '../../providers/submission-delegate';
 import { CoreComponentsModule } from '@components/components.module';
 import { CoreDirectivesModule } from '@directives/directives.module';
+import { CoreEditorComponentsModule } from '@core/editor/components/components.module';
 
 @NgModule({
     declarations: [
@@ -31,7 +32,8 @@ import { CoreDirectivesModule } from '@directives/directives.module';
         IonicModule,
         TranslateModule.forChild(),
         CoreComponentsModule,
-        CoreDirectivesModule
+        CoreDirectivesModule,
+        CoreEditorComponentsModule,
     ],
     providers: [
         AddonModAssignSubmissionOnlineTextHandler

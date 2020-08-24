@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,8 +13,6 @@
 // limitations under the License.
 
 import { Component, Input, Injector } from '@angular/core';
-import { CoreAppProvider } from '@providers/app';
-import { CoreCourseProvider } from '@core/course/providers/course';
 import { CoreCourseModuleMainResourceComponent } from '@core/course/classes/main-resource-component';
 import { AddonModFolderProvider } from '../../providers/folder';
 import { AddonModFolderHelperProvider } from '../../providers/helper';
@@ -29,14 +27,16 @@ import { AddonModFolderHelperProvider } from '../../providers/helper';
     templateUrl: 'addon-mod-folder-index.html',
 })
 export class AddonModFolderIndexComponent extends CoreCourseModuleMainResourceComponent {
-    @Input() path: string; // For subfolders. Use the path instead of a boolean so Angular detects them as different states.
+    @Input() folderInstance?: any; // The mod_folder instance.
+    @Input() subfolder?: any; // Subfolder to show.
 
     component = AddonModFolderProvider.COMPONENT;
     canGetFolder: boolean;
     contents: any;
 
-    constructor(injector: Injector, private folderProvider: AddonModFolderProvider, private courseProvider: CoreCourseProvider,
-            private appProvider: CoreAppProvider, private folderHelper: AddonModFolderHelperProvider) {
+    constructor(injector: Injector,
+            protected folderProvider: AddonModFolderProvider,
+            protected folderHelper: AddonModFolderHelperProvider) {
         super(injector);
     }
 
@@ -48,9 +48,9 @@ export class AddonModFolderIndexComponent extends CoreCourseModuleMainResourceCo
 
         this.canGetFolder = this.folderProvider.isGetFolderWSAvailable();
 
-        if (this.path) {
+        if (this.subfolder) {
             // Subfolder. Use module param.
-            this.showModuleData(this.module);
+            this.showModuleData(this.subfolder.contents);
             this.loaded = true;
             this.refreshIcon = 'refresh';
         } else {
@@ -70,67 +70,66 @@ export class AddonModFolderIndexComponent extends CoreCourseModuleMainResourceCo
     /**
      * Perform the invalidate content function.
      *
-     * @return {Promise<any>} Resolved when done.
+     * @return Resolved when done.
      */
     protected invalidateContent(): Promise<any> {
         return this.folderProvider.invalidateContent(this.module.id, this.courseId);
     }
 
     /**
-     * Convenience function to set scope data using module.
-     * @param {any} module Module to show.
+     * Convenience function to set data to display.
+     *
+     * @param folderContents Contents to show.
      */
-    protected showModuleData(module: any): void {
-        this.description = module.intro || module.description;
+    protected showModuleData(folderContents: any): void {
+        this.description = this.folderInstance ? this.folderInstance.intro : this.module.description;
 
-        this.dataRetrieved.emit(module);
-
-        if (this.path) {
+        if (this.subfolder) {
             // Subfolder.
-            this.contents = module.contents;
+            this.contents = folderContents;
         } else {
-            this.contents = this.folderHelper.formatContents(module.contents);
+            this.contents = this.folderHelper.formatContents(folderContents);
         }
     }
 
     /**
      * Download folder contents.
      *
-     * @param {boolean} [refresh] Whether we're refreshing data.
-     * @return {Promise<any>} Promise resolved when done.
+     * @param refresh Whether we're refreshing data.
+     * @return Promise resolved when done.
      */
     protected fetchContent(refresh?: boolean): Promise<any> {
-        let promise;
+        let promise,
+            folderContents = this.module.contents;
 
         if (this.canGetFolder) {
             promise = this.folderProvider.getFolder(this.courseId, this.module.id).then((folder) => {
-                return this.courseProvider.loadModuleContents(this.module, this.courseId).then(() => {
-                    folder.contents = this.module.contents;
+                return this.courseProvider.loadModuleContents(this.module, this.courseId, undefined, false, refresh).then(() => {
+                    folderContents = this.module.contents;
+                    this.folderInstance = folder;
 
                     return folder;
                 });
             });
         } else {
-            promise = this.courseProvider.getModule(this.module.id, this.courseId).then((folder) => {
-                if (!folder.contents.length && this.module.contents.length && !this.appProvider.isOnline()) {
+            promise = this.courseProvider.getModule(this.module.id, this.courseId).then((module) => {
+                if (!module.contents.length && this.module.contents.length && !this.appProvider.isOnline()) {
                     // The contents might be empty due to a cached data. Use the old ones.
-                    folder.contents = this.module.contents;
+                    module.contents = this.module.contents;
                 }
-                this.module = folder;
+                this.module = module;
+                folderContents = module.contents;
 
-                return folder;
+                return module;
             });
         }
 
-        return promise.then((folder) => {
-            if (folder) {
-                this.description = folder.intro || folder.description;
-                this.dataRetrieved.emit(folder);
-            }
+        return promise.then(() => {
 
-            this.showModuleData(folder);
+            this.dataRetrieved.emit(this.folderInstance || this.module);
 
-            // All data obtained, now fill the context menu.
+            this.showModuleData(folderContents);
+        }).finally(() => {
             this.fillContextMenu(refresh);
         });
     }

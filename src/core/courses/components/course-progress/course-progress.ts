@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,6 +22,8 @@ import { CoreCoursesProvider } from '@core/courses/providers/courses';
 import { CoreCourseProvider } from '@core/course/providers/course';
 import { CoreCourseHelperProvider } from '@core/course/providers/helper';
 import { CoreCoursesCourseOptionsMenuComponent } from '../course-options-menu/course-options-menu';
+import { Translate } from '@singletons/core.singletons';
+import { CoreConstants } from '@core/constants';
 
 /**
  * This component is meant to display a course for a list of courses with progress.
@@ -40,6 +42,7 @@ export class CoreCoursesCourseProgressComponent implements OnInit, OnDestroy {
     @Input() showAll = false; // If true, will show all actions, options, star and progress.
     @Input() showDownload = true; // If true, will show download button. Only works if the options menu is not shown.
 
+    courseStatus = CoreConstants.NOT_DOWNLOADED;
     isDownloading: boolean;
     prefetchCourseData = {
         downloadSucceeded: false,
@@ -104,7 +107,10 @@ export class CoreCoursesCourseProgressComponent implements OnInit, OnDestroy {
         }, this.sitesProvider.getCurrentSiteId());
 
         // Determine course prefetch icon.
-        this.courseHelper.getCourseStatusIconAndTitle(this.course.id).then((data) => {
+        this.courseProvider.getCourseStatus(this.course.id).then((status) => {
+            const data = this.courseHelper.getCourseStatusIconAndTitleFromStatus(status);
+
+            this.courseStatus = status;
             this.prefetchCourseData.prefetchCourseIcon = data.icon;
             this.prefetchCourseData.title = data.title;
 
@@ -130,7 +136,7 @@ export class CoreCoursesCourseProgressComponent implements OnInit, OnDestroy {
     /**
      * Open a course.
      *
-     * @param {any} course The course to open.
+     * @param course The course to open.
      */
     openCourse(course: any): void {
         this.courseHelper.openCourse(this.navCtrl, course);
@@ -139,7 +145,7 @@ export class CoreCoursesCourseProgressComponent implements OnInit, OnDestroy {
     /**
      * Prefetch the course.
      *
-     * @param {Event} e Click event.
+     * @param e Click event.
      */
     prefetchCourse(e: Event): void {
         e.preventDefault();
@@ -153,13 +159,39 @@ export class CoreCoursesCourseProgressComponent implements OnInit, OnDestroy {
     }
 
     /**
+     * Delete the course.
+     */
+    async deleteCourse(): Promise<void> {
+        try {
+            await this.domUtils.showDeleteConfirm('core.course.confirmdeletemodulefiles');
+        } catch (error) {
+            if (!error.coreCanceled) {
+                throw error;
+            }
+
+            return;
+        }
+
+        const modal = this.domUtils.showModalLoading();
+
+        try {
+            await this.courseHelper.deleteCourseFiles(this.course.id);
+        } catch (error) {
+            this.domUtils.showErrorModalDefault(error, Translate.instance.instant('core.errordeletefile'));
+        } finally {
+            modal.dismiss();
+        }
+    }
+
+    /**
      * Update the course status icon and title.
      *
-     * @param {string} status Status to show.
+     * @param status Status to show.
      */
     protected updateCourseStatus(status: string): void {
         const statusData = this.courseHelper.getCourseStatusIconAndTitleFromStatus(status);
 
+        this.courseStatus = status;
         this.prefetchCourseData.prefetchCourseIcon = statusData.icon;
         this.prefetchCourseData.title = statusData.title;
     }
@@ -167,7 +199,7 @@ export class CoreCoursesCourseProgressComponent implements OnInit, OnDestroy {
     /**
      * Show the context menu.
      *
-     * @param {Event} e Click Event.
+     * @param e Click Event.
      */
     showCourseOptionsMenu(e: Event): void {
         e.preventDefault();
@@ -175,6 +207,7 @@ export class CoreCoursesCourseProgressComponent implements OnInit, OnDestroy {
 
         const popover = this.popoverCtrl.create(CoreCoursesCourseOptionsMenuComponent, {
             course: this.course,
+            courseStatus: this.courseStatus,
             prefetch: this.prefetchCourseData
         });
         popover.onDidDismiss((action) => {
@@ -183,6 +216,11 @@ export class CoreCoursesCourseProgressComponent implements OnInit, OnDestroy {
                     case 'download':
                         if (this.prefetchCourseData.prefetchCourseIcon != 'spinner') {
                             this.prefetchCourse(e);
+                        }
+                        break;
+                    case 'delete':
+                        if (this.courseStatus == 'downloaded' || this.courseStatus == 'outdated') {
+                            this.deleteCourse();
                         }
                         break;
                     case 'hide':
@@ -210,7 +248,7 @@ export class CoreCoursesCourseProgressComponent implements OnInit, OnDestroy {
     /**
      * Hide/Unhide the course from the course list.
      *
-     * @param {boolean} hide True to hide and false to show.
+     * @param hide True to hide and false to show.
      */
     protected setCourseHidden(hide: boolean): void {
         this.showSpinner = true;
@@ -218,8 +256,13 @@ export class CoreCoursesCourseProgressComponent implements OnInit, OnDestroy {
         // We should use null to unset the preference.
         this.userProvider.updateUserPreference('block_myoverview_hidden_course_' + this.course.id, hide ? 1 : null).then(() => {
             this.course.hidden = hide;
-            this.eventsProvider.trigger(
-                CoreCoursesProvider.EVENT_MY_COURSES_UPDATED, {course: this.course}, this.sitesProvider.getCurrentSiteId());
+            this.eventsProvider.trigger(CoreCoursesProvider.EVENT_MY_COURSES_UPDATED, {
+                courseId: this.course.id,
+                course: this.course,
+                action: CoreCoursesProvider.ACTION_STATE_CHANGED,
+                state: CoreCoursesProvider.STATE_HIDDEN,
+                value: hide,
+            }, this.sitesProvider.getCurrentSiteId());
         }).catch((error) => {
             if (!this.isDestroyed) {
                 this.domUtils.showErrorModalDefault(error, 'Error changing course visibility.');
@@ -232,15 +275,20 @@ export class CoreCoursesCourseProgressComponent implements OnInit, OnDestroy {
     /**
      * Favourite/Unfavourite the course from the course list.
      *
-     * @param {boolean} favourite True to favourite and false to unfavourite.
+     * @param favourite True to favourite and false to unfavourite.
      */
     protected setCourseFavourite(favourite: boolean): void {
         this.showSpinner = true;
 
         this.coursesProvider.setFavouriteCourse(this.course.id, favourite).then(() => {
             this.course.isfavourite = favourite;
-            this.eventsProvider.trigger(
-                CoreCoursesProvider.EVENT_MY_COURSES_UPDATED, {course: this.course}, this.sitesProvider.getCurrentSiteId());
+            this.eventsProvider.trigger(CoreCoursesProvider.EVENT_MY_COURSES_UPDATED, {
+                courseId: this.course.id,
+                course: this.course,
+                action: CoreCoursesProvider.ACTION_STATE_CHANGED,
+                state: CoreCoursesProvider.STATE_FAVOURITE,
+                value: favourite,
+            }, this.sitesProvider.getCurrentSiteId());
         }).catch((error) => {
             if (!this.isDestroyed) {
                 this.domUtils.showErrorModalDefault(error, 'Error changing course favourite attribute.');

@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Component, OnDestroy, Optional, ViewChild } from '@angular/core';
+import { Component, OnDestroy, Optional, ViewChild, ElementRef } from '@angular/core';
 import { FormControl } from '@angular/forms';
 import { IonicPage, NavController, NavParams } from 'ionic-angular';
 import { TranslateService } from '@ngx-translate/core';
@@ -25,7 +25,7 @@ import { CoreTextUtilsProvider } from '@providers/utils/text';
 import { CoreUtilsProvider } from '@providers/utils/utils';
 import { CoreFileUploaderProvider } from '@core/fileuploader/providers/fileuploader';
 import { CoreSplitViewComponent } from '@components/split-view/split-view';
-import { CoreRichTextEditorComponent } from '@components/rich-text-editor/rich-text-editor.ts';
+import { CoreEditorRichTextEditorComponent } from '@core/editor/components/rich-text-editor/rich-text-editor.ts';
 import { AddonModForumProvider } from '../../providers/forum';
 import { AddonModForumOfflineProvider } from '../../providers/offline';
 import { AddonModForumHelperProvider } from '../../providers/helper';
@@ -41,7 +41,8 @@ import { AddonModForumSyncProvider } from '../../providers/sync';
 })
 export class AddonModForumNewDiscussionPage implements OnDestroy {
 
-    @ViewChild(CoreRichTextEditorComponent) messageEditor: CoreRichTextEditorComponent;
+    @ViewChild('newDiscFormEl') formElement: ElementRef;
+    @ViewChild(CoreEditorRichTextEditorComponent) messageEditor: CoreEditorRichTextEditorComponent;
 
     component = AddonModForumProvider.COMPONENT;
     messageControl = new FormControl();
@@ -74,6 +75,7 @@ export class AddonModForumNewDiscussionPage implements OnDestroy {
     protected syncObserver: any;
     protected isDestroyed = false;
     protected originalData: any;
+    protected forceLeave = false;
 
     constructor(navParams: NavParams,
             private navCtrl: NavController,
@@ -128,8 +130,8 @@ export class AddonModForumNewDiscussionPage implements OnDestroy {
     /**
      * Fetch if forum uses groups and the groups it uses.
      *
-     * @param  {boolean} [refresh] Whether we're refreshing data.
-     * @return {Promise<any>} Promise resolved when done.
+     * @param refresh Whether we're refreshing data.
+     * @return Promise resolved when done.
      */
     protected fetchDiscussionData(refresh?: boolean): Promise<any> {
         return this.groupsProvider.getActivityGroupMode(this.cmId).then((mode) => {
@@ -253,8 +255,8 @@ export class AddonModForumNewDiscussionPage implements OnDestroy {
     /**
      * Validate which of the groups returned by getActivityAllowedGroups in visible groups should be shown to post to.
      *
-     * @param  {any[]} forumGroups Forum groups.
-     * @return {Promise<any[]>} Promise resolved with the list of groups.
+     * @param forumGroups Forum groups.
+     * @return Promise resolved with the list of groups.
      */
     protected validateVisibleGroups(forumGroups: any[]): Promise<any[]> {
         // We first check if the user can post to all the groups.
@@ -301,9 +303,9 @@ export class AddonModForumNewDiscussionPage implements OnDestroy {
     /**
      * Filter forum groups, returning only those that are inside user groups.
      *
-     * @param  {any[]} forumGroups Forum groups.
-     * @param  {any[]} userGroups User groups.
-     * @return {any[]} Filtered groups.
+     * @param forumGroups Forum groups.
+     * @param userGroups User groups.
+     * @return Filtered groups.
      */
     protected filterGroups(forumGroups: any[], userGroups: any[]): any[] {
         const filtered = [];
@@ -321,9 +323,9 @@ export class AddonModForumNewDiscussionPage implements OnDestroy {
     /**
      * Add the "All participants" option to a list of groups if the user can add a discussion to all participants.
      *
-     * @param  {any[]}   groups Groups.
-     * @param  {boolean} check  True to check if the user can add a discussion to all participants.
-     * @return {Promise<any[]>} Promise resolved with the list of groups.
+     * @param groups Groups.
+     * @param check True to check if the user can add a discussion to all participants.
+     * @return Promise resolved with the list of groups.
      */
     protected addAllParticipantsOption(groups: any[], check: boolean): Promise<any[]> {
         if (!this.forumProvider.isAllParticipantsFixed()) {
@@ -365,7 +367,7 @@ export class AddonModForumNewDiscussionPage implements OnDestroy {
     /**
      * Pull to refresh.
      *
-     * @param {any} refresher Refresher.
+     * @param refresher Refresher.
      */
     refreshGroups(refresher: any): void {
         const promises = [
@@ -384,8 +386,8 @@ export class AddonModForumNewDiscussionPage implements OnDestroy {
     /**
      * Convenience function to update or return to discussions depending on device.
      *
-     * @param {number} [discussionIds] Ids of the new discussions.
-     * @param {number} [discTimecreated] The time created of the discussion (if offline).
+     * @param discussionIds Ids of the new discussions.
+     * @param discTimecreated The time created of the discussion (if offline).
      */
     protected returnToDiscussions(discussionIds?: number[], discTimecreated?: number): void {
         const data: any = {
@@ -408,6 +410,7 @@ export class AddonModForumNewDiscussionPage implements OnDestroy {
             this.newDiscussion.postToAllGroups = false;
             this.messageEditor.clearText();
             this.originalData = this.utils.clone(this.newDiscussion);
+            this.forceLeave = true; // Avoid asking for confirmation.
 
             // Trigger view event, to highlight the current opened discussion in the split view.
             this.eventsProvider.trigger(AddonModForumProvider.VIEW_DISCUSSION_EVENT, {
@@ -415,7 +418,7 @@ export class AddonModForumNewDiscussionPage implements OnDestroy {
                 discussion: 0
             }, this.sitesProvider.getCurrentSiteId());
         } else {
-            this.originalData = null; // Avoid asking for confirmation.
+            this.forceLeave = true; // Avoid asking for confirmation.
             this.navCtrl.pop();
         }
     }
@@ -423,7 +426,7 @@ export class AddonModForumNewDiscussionPage implements OnDestroy {
     /**
      * Message changed.
      *
-     * @param {string} text The new text.
+     * @param text The new text.
      */
     onMessageChange(text: string): void {
         this.newDiscussion.message = text;
@@ -470,12 +473,16 @@ export class AddonModForumNewDiscussionPage implements OnDestroy {
             if (discussionIds) {
                 // Data sent to server, delete stored files (if any).
                 this.forumHelper.deleteNewDiscussionStoredFiles(this.forumId, discTimecreated);
+
+                this.eventsProvider.trigger(CoreEventsProvider.ACTIVITY_DATA_SENT, { module: 'forum' });
             }
 
             if (discussionIds && discussionIds.length < groupIds.length) {
                 // Some discussions could not be created.
                 this.domUtils.showErrorModalDefault(null, 'addon.mod_forum.errorposttoallgroups', true);
             }
+
+            this.domUtils.triggerFormSubmittedEvent(this.formElement, !!discussionIds, this.sitesProvider.getCurrentSiteId());
 
             this.returnToDiscussions(discussionIds, discTimecreated);
         }).catch((message) => {
@@ -498,6 +505,8 @@ export class AddonModForumNewDiscussionPage implements OnDestroy {
             }));
 
             return Promise.all(promises).then(() => {
+                this.domUtils.triggerFormCancelledEvent(this.formElement, this.sitesProvider.getCurrentSiteId());
+
                 this.returnToDiscussions();
             });
         }).catch(() => {
@@ -515,22 +524,24 @@ export class AddonModForumNewDiscussionPage implements OnDestroy {
     /**
      * Check if we can leave the page or not.
      *
-     * @return {boolean|Promise<void>} Resolved if we can leave it, rejected if not.
+     * @return Resolved if we can leave it, rejected if not.
      */
-    ionViewCanLeave(): boolean | Promise<void> {
-        let promise: any;
+    async ionViewCanLeave(): Promise<void> {
+        if (this.forceLeave) {
+            return;
+        }
 
         if (this.forumHelper.hasPostDataChanged(this.newDiscussion, this.originalData)) {
             // Show confirmation if some data has been modified.
-            promise = this.domUtils.showConfirm(this.translate.instant('core.confirmcanceledit'));
-        } else {
-            promise = Promise.resolve();
+            await this.domUtils.showConfirm(this.translate.instant('core.confirmcanceledit'));
         }
 
-        return promise.then(() => {
-            // Delete the local files from the tmp folder.
-            this.uploaderProvider.clearTmpFiles(this.newDiscussion.files);
-        });
+        // Delete the local files from the tmp folder.
+        this.uploaderProvider.clearTmpFiles(this.newDiscussion.files);
+
+        if (this.formElement) {
+            this.domUtils.triggerFormCancelledEvent(this.formElement, this.sitesProvider.getCurrentSiteId());
+        }
     }
 
     /**

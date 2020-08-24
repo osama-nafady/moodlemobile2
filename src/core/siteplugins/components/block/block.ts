@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -63,9 +63,11 @@ export class CoreSitePluginsBlockComponent extends CoreBlockBaseComponent implem
     }
 
     /**
-     * Pass on content invalidation by refreshing content in the plugin content component.
+     * Invalidate block data.
+     *
+     * @return Promise resolved when done.
      */
     protected invalidateContent(): Promise<any> {
-        return Promise.resolve(this.content.refreshContent());
+        return this.sitePluginsProvider.invalidateContent(this.component, this.method, this.args);
     }
 }

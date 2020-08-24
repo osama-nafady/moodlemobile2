@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ import { CoreFilepoolProvider } from '@providers/filepool';
 import { AddonModPageProvider } from './page';
 import { CoreFileProvider } from '@providers/file';
 import { CoreSitesProvider } from '@providers/sites';
-import { Http, Response } from '@angular/http';
+import { CoreWSProvider } from '@providers/ws';
 
 /**
  * Service that provides some features for page.
@@ -30,18 +30,22 @@ export class AddonModPageHelperProvider {
 
     protected logger;
 
-    constructor(logger: CoreLoggerProvider, private domUtils: CoreDomUtilsProvider, private filepoolProvider: CoreFilepoolProvider,
-            private fileProvider: CoreFileProvider, private textUtils: CoreTextUtilsProvider, private http: Http,
-            private sitesProvider: CoreSitesProvider) {
+    constructor(logger: CoreLoggerProvider,
+            protected domUtils: CoreDomUtilsProvider,
+            protected filepoolProvider: CoreFilepoolProvider,
+            protected fileProvider: CoreFileProvider,
+            protected textUtils: CoreTextUtilsProvider,
+            protected wsProvider: CoreWSProvider,
+            protected sitesProvider: CoreSitesProvider) {
         this.logger = logger.getInstance('AddonModPageHelperProvider');
     }
 
     /**
      * Gets the page HTML.
      *
-     * @param {any} contents The module contents.
-     * @param {number} moduleId The module ID.
-     * @return {Promise<string>} The HTML of the page.
+     * @param contents The module contents.
+     * @param moduleId The module ID.
+     * @return The HTML of the page.
      */
     getPageHtml(contents: any, moduleId: number): Promise<string> {
         let indexUrl,
@@ -76,32 +80,23 @@ export class AddonModPageHelperProvider {
                 AddonModPageProvider.COMPONENT, moduleId);
         } else {
             // We return the live URL.
-            promise = Promise.resolve(this.sitesProvider.getCurrentSite().fixPluginfileURL(indexUrl));
+            promise = this.sitesProvider.getCurrentSite().checkAndFixPluginfileURL(indexUrl);
         }
 
-        return promise.then((url) => {
+        return promise.then(async (url) => {
+            const content = await this.wsProvider.getText(url);
 
-            // Fetch the URL content.
-            const promise = this.http.get(url).toPromise();
-
-            return promise.then((response: Response): any => {
-                const content = response.text();
-                if (typeof content !== 'string') {
-                    return Promise.reject(null);
-                }
-
-                // Now that we have the content, we update the SRC to point back to the external resource.
-                // That will be caught by core-format-text.
-                return this.domUtils.restoreSourcesInHtml(content, paths);
-            });
+            // Now that we have the content, we update the SRC to point back to the external resource.
+            // That will be caught by core-format-text.
+            return this.domUtils.restoreSourcesInHtml(content, paths);
         });
     }
 
     /**
      * Returns whether the file is the main page of the module.
      *
-     * @param {any} file An object returned from WS containing file info.
-     * @return {boolean}  Whether the file is the main page or not.
+     * @param file An object returned from WS containing file info.
+     * @return Whether the file is the main page or not.
      */
     protected isMainPage(file: any): boolean {
         const filename = file.filename || '',

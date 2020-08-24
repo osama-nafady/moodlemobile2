@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ import { TranslateModule } from '@ngx-translate/core';
 import { CoreComponentsModule } from '@components/components.module';
 import { CoreDirectivesModule } from '@directives/directives.module';
 import { AddonModWikiEditPage } from './edit';
+import { CoreEditorComponentsModule } from '@core/editor/components/components.module';
 
 @NgModule({
     declarations: [
@@ -26,6 +27,7 @@ import { AddonModWikiEditPage } from './edit';
     imports: [
         CoreComponentsModule,
         CoreDirectivesModule,
+        CoreEditorComponentsModule,
         IonicPageModule.forChild(AddonModWikiEditPage),
         TranslateModule.forChild()
     ],

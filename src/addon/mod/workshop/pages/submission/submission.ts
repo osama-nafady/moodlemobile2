@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { Component, OnInit, OnDestroy, Optional, ViewChild } from '@angular/core';
+import { Component, OnInit, OnDestroy, Optional, ViewChild, ElementRef } from '@angular/core';
 import { Content, IonicPage, NavParams, NavController } from 'ionic-angular';
 import { FormGroup, FormBuilder } from '@angular/forms';
 import { TranslateService } from '@ngx-translate/core';
@@ -41,6 +41,7 @@ import { AddonModWorkshopSyncProvider } from '../../providers/sync';
 export class AddonModWorkshopSubmissionPage implements OnInit, OnDestroy {
 
     @ViewChild(AddonModWorkshopAssessmentStrategyComponent) assessmentStrategy: AddonModWorkshopAssessmentStrategyComponent;
+    @ViewChild('feedbackFormEl') formElement: ElementRef;
 
     module: any;
     workshop: any;
@@ -141,16 +142,18 @@ export class AddonModWorkshopSubmissionPage implements OnInit, OnDestroy {
     /**
      * Check if we can leave the page or not.
      *
-     * @return {boolean|Promise<void>} Resolved if we can leave it, rejected if not.
+     * @return Resolved if we can leave it, rejected if not.
      */
-    ionViewCanLeave(): boolean | Promise<void> {
+    async ionViewCanLeave(): Promise<void> {
         const assessmentHasChanged = this.assessmentStrategy && this.assessmentStrategy.hasDataChanged();
         if (this.forceLeave || (!this.hasEvaluationChanged() && !assessmentHasChanged)) {
-            return true;
+            return;
         }
 
         // Show confirmation if some data has been modified.
-        return this.domUtils.showConfirm(this.translate.instant('core.confirmcanceledit'));
+        await this.domUtils.showConfirm(this.translate.instant('core.confirmcanceledit'));
+
+        this.domUtils.triggerFormCancelledEvent(this.formElement, this.siteId);
     }
 
     /**
@@ -170,7 +173,7 @@ export class AddonModWorkshopSubmissionPage implements OnInit, OnDestroy {
     /**
      * Function called when we receive an event of submission changes.
      *
-     * @param {any} data Event data received.
+     * @param data Event data received.
      */
     protected eventReceived(data: any): void {
         if (this.workshopId === data.workshopId) {
@@ -184,7 +187,7 @@ export class AddonModWorkshopSubmissionPage implements OnInit, OnDestroy {
     /**
      * Fetch the submission data.
      *
-     * @return {Promise<void>} Resolved when done.
+     * @return Resolved when done.
      */
     protected fetchSubmissionData(): Promise<void> {
         return this.workshopHelper.getSubmissionById(this.workshopId, this.submissionId).then((submissionData) => {
@@ -231,16 +234,16 @@ export class AddonModWorkshopSubmissionPage implements OnInit, OnDestroy {
                         this.canDelete = !assessment;
                     }
 
-                    assessment.userid = assessment.reviewerid;
-                    assessment = this.workshopHelper.realGradeValue(this.workshop, assessment);
-
-                    if (this.currentUserId == assessment.userid) {
-                        this.ownAssessment = assessment;
-                        assessment.ownAssessment = true;
-                    }
+                    assessment = this.parseAssessment(assessment);
 
                     this.submissionInfo.reviewedby = [assessment];
                 }));
+            } else if (this.workshop.phase == AddonModWorkshopProvider.PHASE_CLOSED && this.userId == this.currentUserId) {
+                this.workshopProvider.getSubmissionAssessments(this.workshopId, this.submissionId).then((assessments) => {
+                    this.submissionInfo.reviewedby = assessments.map((assessment) => {
+                        return this.parseAssessment(assessment);
+                    });
+                });
             }
 
             if (this.canAddFeedback || this.workshop.phase == AddonModWorkshopProvider.PHASE_CLOSED) {
@@ -322,6 +325,24 @@ export class AddonModWorkshopSubmissionPage implements OnInit, OnDestroy {
     }
 
     /**
+     * Parse assessment to be shown.
+     *
+     * @param  assessment Original assessment.
+     * @return Parsed assessment.
+     */
+    protected parseAssessment(assessment: any): any {
+        assessment.userid = assessment.reviewerid;
+        assessment = this.workshopHelper.realGradeValue(this.workshop, assessment);
+
+        if (this.currentUserId == assessment.userid) {
+            this.ownAssessment = assessment;
+            assessment.ownAssessment = true;
+        }
+
+        return assessment;
+    }
+
+    /**
      * Force leaving the page, without checking for changes.
      */
     protected forceLeavePage(): void {
@@ -332,7 +353,7 @@ export class AddonModWorkshopSubmissionPage implements OnInit, OnDestroy {
     /**
      * Check if data has changed.
      *
-     * @return {boolean} True if changed, false otherwise.
+     * @return True if changed, false otherwise.
      */
     protected hasEvaluationChanged(): boolean {
         if (!this.loaded || !this.access.canoverridegrades) {
@@ -359,7 +380,7 @@ export class AddonModWorkshopSubmissionPage implements OnInit, OnDestroy {
     /**
      * Convenience function to refresh all the data.
      *
-     * @return {Promise<any>} Resolved when done.
+     * @return Resolved when done.
      */
     protected refreshAllData(): Promise<any> {
         const promises = [];
@@ -373,6 +394,10 @@ export class AddonModWorkshopSubmissionPage implements OnInit, OnDestroy {
             promises.push(this.workshopProvider.invalidateAssessmentData(this.workshopId, this.assessmentId));
         }
 
+        if (this.assessmentUserId) {
+            promises.push(this.workshopProvider.invalidateReviewerAssesmentsData(this.workshopId, this.assessmentId));
+        }
+
         return Promise.all(promises).finally(() => {
             this.eventsProvider.trigger(AddonModWorkshopProvider.ASSESSMENT_INVALIDATED, this.siteId);
 
@@ -383,7 +408,7 @@ export class AddonModWorkshopSubmissionPage implements OnInit, OnDestroy {
     /**
      * Pull to refresh.
      *
-     * @param {any} refresher Refresher.
+     * @param refresher Refresher.
      */
     refreshSubmission(refresher: any): void {
         if (this.loaded) {
@@ -427,7 +452,7 @@ export class AddonModWorkshopSubmissionPage implements OnInit, OnDestroy {
     /**
      * Sends the evaluation to be saved on the server.
      *
-     * @return {Promise<any>} Resolved when done.
+     * @return Resolved when done.
      */
     protected sendEvaluation(): Promise<any> {
         const modal = this.domUtils.showModalLoading('core.sending', true);
@@ -440,7 +465,10 @@ export class AddonModWorkshopSubmissionPage implements OnInit, OnDestroy {
 
         // Try to send it to server.
         return this.workshopProvider.evaluateSubmission(this.workshopId, this.submissionId, this.courseId, inputData.text,
-                inputData.published, inputData.grade).then(() => {
+                inputData.published, inputData.grade).then((result) => {
+
+            this.domUtils.triggerFormSubmittedEvent(this.formElement, !!result, this.siteId);
+
             const data = {
                 workshopId: this.workshopId,
                 cmId: this.module.cmid,
@@ -461,7 +489,7 @@ export class AddonModWorkshopSubmissionPage implements OnInit, OnDestroy {
      * Perform the submission delete action.
      */
     deleteSubmission(): void {
-        this.domUtils.showConfirm(this.translate.instant('addon.mod_workshop.submissiondeleteconfirm')).then(() => {
+        this.domUtils.showDeleteConfirm('addon.mod_workshop.submissiondeleteconfirm').then(() => {
             const modal = this.domUtils.showModalLoading('core.deleting', true);
             let success = false;
             this.workshopProvider.deleteSubmission(this.workshopId, this.submissionId, this.courseId).then(() => {
@@ -490,7 +518,7 @@ export class AddonModWorkshopSubmissionPage implements OnInit, OnDestroy {
     /**
      * Undo the submission delete action.
      *
-     * @return {Promise<any>} Resolved when done.
+     * @return Resolved when done.
      */
     undoDeleteSubmission(): Promise<any> {
         return this.workshopOffline.deleteSubmissionAction(this.workshopId, this.submissionId, 'delete').finally(() => {

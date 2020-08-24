@@ -1,4 +1,4 @@
-// (C) Copyright 2015 Martin Dougiamas
+// (C) Copyright 2015 Moodle Pty Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ import { CoreCourseModulePrefetchDelegate } from '@core/course/providers/module-
 import { CoreCourseHelperProvider } from '@core/course/providers/helper';
 import { CoreDomUtilsProvider } from '@providers/utils/dom';
 import { TranslateService } from '@ngx-translate/core';
+import { CoreConstants } from '@core/constants';
 
 /**
  * Page that displays the amount of file storage used by each activity on the course, and allows
@@ -84,6 +85,10 @@ export class AddonStorageManagerCourseStoragePage {
 
             Promise.all(allPromises).then(() => {
                 this.loaded = true;
+
+                if (this.totalSize == 0) {
+                    this.markCourseAsNotDownloaded();
+                }
             });
         });
     }
@@ -93,7 +98,17 @@ export class AddonStorageManagerCourseStoragePage {
      *
      * (This works by deleting data for each module on the course that has data.)
      */
-    deleteForCourse(): void {
+    async deleteForCourse(): Promise<void> {
+        try {
+            await this.domUtils.showDeleteConfirm('core.course.confirmdeletemodulefiles');
+        } catch (error) {
+            if (!error.coreCanceled) {
+                throw error;
+            }
+
+            return;
+        }
+
         const modules = [];
         this.sections.forEach((section) => {
             section.modules.forEach((module) => {
@@ -111,9 +126,19 @@ export class AddonStorageManagerCourseStoragePage {
      *
      * (This works by deleting data for each module in the section that has data.)
      *
-     * @param {any} section Section object with information about section and modules
+     * @param section Section object with information about section and modules
      */
-    deleteForSection(section: any): void {
+    async deleteForSection(section: any): Promise<void> {
+        try {
+            await this.domUtils.showDeleteConfirm('core.course.confirmdeletemodulefiles');
+        } catch (error) {
+            if (!error.coreCanceled) {
+                throw error;
+            }
+
+            return;
+        }
+
         const modules = [];
         section.modules.forEach((module) => {
             if (module.totalSize > 0) {
@@ -127,18 +152,30 @@ export class AddonStorageManagerCourseStoragePage {
     /**
      * The user has requested a delete for a module's data
      *
-     * @param {any} module Module details
+     * @param module Module details
      */
-    deleteForModule(module: any): void {
-        if (module.totalSize > 0) {
-            this.deleteModules([module]);
+    async deleteForModule(module: any): Promise<void> {
+        if (module.totalSize === 0) {
+            return;
         }
+
+        try {
+            await this.domUtils.showDeleteConfirm('core.course.confirmdeletemodulefiles');
+        } catch (error) {
+            if (!error.coreCanceled) {
+                throw error;
+            }
+
+            return;
+        }
+
+        this.deleteModules([module]);
     }
 
     /**
      * Deletes the specified modules, showing the loading overlay while it happens.
      *
-     * @param {any[]} modules Modules to delete
+     * @param modules Modules to delete
      * @return Promise<void> Once deleting has finished
      */
     protected deleteModules(modules: any[]): Promise<void> {
@@ -162,6 +199,25 @@ export class AddonStorageManagerCourseStoragePage {
             modal.dismiss();
 
             this.domUtils.showErrorModalDefault(error, this.translate.instant('core.errordeletefile'));
+        }).finally(() => {
+            // @TODO This is a workaround that should be more specific solving MOBILE-3305.
+            // Also should take into account all modules are not downloaded.
+
+            // Mark course as not downloaded if course size is 0.
+            if (this.totalSize == 0) {
+                this.markCourseAsNotDownloaded();
+            }
         });
+    }
+
+    /**
+     * Mark course as not downloaded.
+     */
+    protected markCourseAsNotDownloaded(): void {
+        // @TODO This is a workaround that should be more specific solving MOBILE-3305.
+        // Also should take into account all modules are not downloaded.
+        // Check after MOBILE-3188 is integrated.
+
+        this.courseProvider.setCourseStatus(this.course.id, CoreConstants.NOT_DOWNLOADED);
     }
 }
